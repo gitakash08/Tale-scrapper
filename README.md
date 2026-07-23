@@ -49,6 +49,27 @@ Because both can write, **run only one scraper at a time**. Either:
 New rows are `approved = FALSE`; approve them in pgAdmin
 (`UPDATE dramas SET approved = TRUE WHERE …`) to publish.
 
+## GUI control panel (`gui/`)
+
+A Next.js + shadcn dashboard to drive the worker with one click — no CLI needed.
+
+```bash
+cd gui
+npm install
+npm run dev          # http://localhost:4321
+```
+
+- **Scraper** tab: a duration dial (5m–2h) + Start/Stop, a live progress ring,
+  pass/added counters, and a real-time log terminal streamed from the worker.
+- **Approval Queue** tab: pending scraped titles as poster cards (native title,
+  rating, synopsis, source) with one-click **Approve / Reject**.
+- **Dashboard** tab: animated catalog counters, a content-type + source
+  breakdown, and an "added per scrape run" chart.
+
+It reads the same `DATABASE_URL` (set in `gui/.env.local`) and starts scraping
+by spawning the worker CLI, so the two never fight over the same code. The
+Postgres advisory lock still guarantees a single writer.
+
 ## Package as a Windows .exe
 
 The worker is pure JS (only `pg`). Either:

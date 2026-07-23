@@ -1,0 +1,118 @@
+@import "tailwindcss";
+
+@theme {
+  --color-night: #150a1a;
+  --color-night-2: #1d0e24;
+  --color-night-card: #241130;
+  --color-rose: #e2698c;
+  --color-rose-light: #f0a0b8;
+  --color-cream: #fbf5f1;
+  --color-cream-muted: #e8ddd6;
+  --color-plum: #3a1636;
+  --color-plum-light: #6b2a60;
+  --color-emerald: #4ade80;
+  --color-amber: #fbbf24;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: var(--color-night);
+  --foreground: var(--color-cream);
+  --card: var(--color-night-card);
+  --card-foreground: var(--color-cream);
+  --primary: var(--color-rose);
+  --primary-foreground: #1a0d1e;
+  --primary-hover: var(--color-rose-light);
+  --secondary: var(--color-plum);
+  --secondary-foreground: var(--color-cream-muted);
+  --muted: #2b1535;
+  --muted-foreground: rgba(232, 221, 214, 0.55);
+  --accent: var(--color-plum-light);
+  --accent-foreground: var(--color-cream);
+  --destructive: #e5484d;
+  --destructive-foreground: #fff;
+  --border: #3a1636;
+  --input: #3a1636;
+  --ring: var(--color-rose);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+* {
+  border-color: var(--border);
+}
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body);
+  min-height: 100vh;
+}
+
+/* ambient glow behind the hero */
+.aurora {
+  background:
+    radial-gradient(60% 50% at 20% 0%, rgba(226, 105, 140, 0.16), transparent 70%),
+    radial-gradient(50% 50% at 90% 10%, rgba(107, 42, 96, 0.22), transparent 70%);
+}
+
+.tap-press {
+  transition: transform 0.1s ease;
+}
+.tap-press:active {
+  transform: scale(0.97);
+}
+
+/* terminal / log */
+.log-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
+}
+.log-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.log-scroll::-webkit-scrollbar-thumb {
+  background: var(--accent);
+  border-radius: 8px;
+}
+
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(226, 105, 140, 0.5); }
+  70% { box-shadow: 0 0 0 16px rgba(226, 105, 140, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(226, 105, 140, 0); }
+}
+.pulse-ring {
+  animation: pulse-ring 2s infinite;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-up {
+  animation: fade-up 0.4s ease both;
+}
