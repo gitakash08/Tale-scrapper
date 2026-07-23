@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Search, RefreshCw } from "lucide-react";
+import { Search, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+
+const PAGE_SIZE = 12;
 
 type Log = { time: string; level: "INFO" | "WARN" | "ERROR"; source: string; message: string; detail: string };
 const LEVEL: Record<string, string> = {
@@ -14,13 +16,23 @@ export default function LogsView() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [q, setQ] = useState("");
   const [level, setLevel] = useState("ALL");
+  const [page, setPage] = useState(1);
 
   const load = () => fetch("/api/logs", { cache: "no-store" }).then((r) => r.json()).then((d) => setLogs(d.logs ?? [])).catch(() => {});
   useEffect(() => { load(); }, []);
 
-  const shown = useMemo(() =>
+  const filtered = useMemo(() =>
     logs.filter((l) => (level === "ALL" || l.level === level) && (!q || (l.message + l.source).toLowerCase().includes(q.toLowerCase()))),
     [logs, q, level]);
+
+  // reset to page 1 whenever the filter/search changes
+  useEffect(() => { setPage(1); }, [q, level]);
+
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const current = Math.min(page, pages);
+  const shown = filtered.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
+  const from = filtered.length === 0 ? 0 : (current - 1) * PAGE_SIZE + 1;
+  const to = Math.min(current * PAGE_SIZE, filtered.length);
 
   return (
     <div>
@@ -52,6 +64,26 @@ export default function LogsView() {
             <span className="truncate text-xs text-muted-foreground">{l.detail}</span>
           </div>
         ))}
+
+        {filtered.length > 0 && (
+          <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm">
+            <span className="text-muted-foreground">
+              Showing <span className="text-foreground">{from}</span>–<span className="text-foreground">{to}</span> of{" "}
+              <span className="text-foreground">{filtered.length}</span> logs
+            </span>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={current <= 1}
+                className="tap-press grid size-8 place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground disabled:opacity-30">
+                <ChevronLeft className="size-4" />
+              </button>
+              <span className="px-2 tabular-nums text-muted-foreground">{current} / {pages}</span>
+              <button onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={current >= pages}
+                className="tap-press grid size-8 place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground disabled:opacity-30">
+                <ChevronRight className="size-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

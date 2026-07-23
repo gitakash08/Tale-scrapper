@@ -21,7 +21,7 @@ export default function Sidebar({
   view, setView, pending,
 }: { view: View; setView: (v: View) => void; pending: number }) {
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-border bg-ink-2">
+    <aside className="flex h-screen w-60 shrink-0 flex-col border-r border-border bg-ink-2">
       <div className="flex items-center gap-2.5 px-5 py-5">
         <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
           <Clapperboard className="size-5" />
@@ -32,7 +32,7 @@ export default function Sidebar({
         </div>
       </div>
 
-      <nav className="mt-2 flex-1 space-y-1 px-3">
+      <nav className="thin-scroll mt-2 flex-1 space-y-1 overflow-y-auto px-3">
         {NAV.map((n) => {
           const active = view === n.id;
           return (

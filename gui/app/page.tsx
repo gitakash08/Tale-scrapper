@@ -29,9 +29,10 @@ export default function Home() {
   }, [refreshKey]);
 
   return (
-    <div className="flex min-h-screen">
+    // Viewport-locked shell: the sidebar stays fixed, only <main> scrolls.
+    <div className="flex h-screen overflow-hidden">
       <Sidebar view={view} setView={setView} pending={pending} />
-      <main className="min-w-0 flex-1 overflow-x-hidden">
+      <main className="thin-scroll min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
         <div className="mx-auto max-w-[1200px] px-8 py-8">
           {view === "dashboard" && <DashboardView key={refreshKey} onNavigate={setView} />}
           {view === "scraper" && <ScraperView onChange={refresh} />}
