@@ -1,40 +1,41 @@
 @import "tailwindcss";
 
 @theme {
-  --color-night: #150a1a;
-  --color-night-2: #1d0e24;
-  --color-night-card: #241130;
-  --color-rose: #e2698c;
-  --color-rose-light: #f0a0b8;
-  --color-cream: #fbf5f1;
-  --color-cream-muted: #e8ddd6;
-  --color-plum: #3a1636;
-  --color-plum-light: #6b2a60;
-  --color-emerald: #4ade80;
+  --color-ink: #0a0a0c;
+  --color-ink-2: #101013;
+  --color-surface: #141418;
+  --color-surface-2: #1b1b20;
+  --color-line: #26262c;
+  --color-rose: #f43f5e;
+  --color-rose-light: #fb7185;
+  --color-rose-dim: #4a1420;
+  --color-text: #ededf0;
+  --color-text-dim: #a1a1aa;
+  --color-emerald: #34d399;
   --color-amber: #fbbf24;
   --font-display: "Fraunces", Georgia, serif;
   --font-body: ui-sans-serif, system-ui, sans-serif;
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: var(--color-night);
-  --foreground: var(--color-cream);
-  --card: var(--color-night-card);
-  --card-foreground: var(--color-cream);
+  --radius: 0.75rem;
+  --background: var(--color-ink);
+  --foreground: var(--color-text);
+  --card: var(--color-surface);
+  --card-foreground: var(--color-text);
   --primary: var(--color-rose);
-  --primary-foreground: #1a0d1e;
+  --primary-foreground: #ffffff;
   --primary-hover: var(--color-rose-light);
-  --secondary: var(--color-plum);
-  --secondary-foreground: var(--color-cream-muted);
-  --muted: #2b1535;
-  --muted-foreground: rgba(232, 221, 214, 0.55);
-  --accent: var(--color-plum-light);
-  --accent-foreground: var(--color-cream);
-  --destructive: #e5484d;
+  --secondary: var(--color-surface-2);
+  --secondary-foreground: var(--color-text);
+  --muted: var(--color-surface-2);
+  --muted-foreground: var(--color-text-dim);
+  --accent: #26262c;
+  --accent-foreground: var(--color-text);
+  --destructive: #f43f5e;
   --destructive-foreground: #fff;
-  --border: #3a1636;
-  --input: #3a1636;
+  --border: var(--color-line);
+  --input: var(--color-line);
   --ring: var(--color-rose);
 }
 
@@ -63,56 +64,30 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-* {
-  border-color: var(--border);
-}
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-body);
-  min-height: 100vh;
-}
+* { border-color: var(--border); }
+html, body { background: var(--background); color: var(--foreground); }
+body { font-family: var(--font-body); min-height: 100vh; }
 
-/* ambient glow behind the hero */
-.aurora {
-  background:
-    radial-gradient(60% 50% at 20% 0%, rgba(226, 105, 140, 0.16), transparent 70%),
-    radial-gradient(50% 50% at 90% 10%, rgba(107, 42, 96, 0.22), transparent 70%);
-}
+.tap-press { transition: transform 0.1s ease, background-color 0.15s ease; }
+.tap-press:active { transform: scale(0.98); }
 
-.tap-press {
-  transition: transform 0.1s ease;
-}
-.tap-press:active {
-  transform: scale(0.97);
-}
+.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); }
 
-/* terminal / log */
-.log-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: var(--accent) transparent;
-}
-.log-scroll::-webkit-scrollbar {
-  width: 8px;
-}
-.log-scroll::-webkit-scrollbar-thumb {
-  background: var(--accent);
-  border-radius: 8px;
-}
+/* scrollbars */
+.thin-scroll { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
+.thin-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.thin-scroll::-webkit-scrollbar-thumb { background: #2e2e36; border-radius: 8px; }
 
-@keyframes pulse-ring {
-  0% { box-shadow: 0 0 0 0 rgba(226, 105, 140, 0.5); }
-  70% { box-shadow: 0 0 0 16px rgba(226, 105, 140, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(226, 105, 140, 0); }
-}
-.pulse-ring {
-  animation: pulse-ring 2s infinite;
-}
+@keyframes fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.fade-up { animation: fade-up 0.35s ease both; }
 
-@keyframes fade-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.fade-up {
-  animation: fade-up 0.4s ease both;
-}
+@keyframes row-out { to { opacity: 0; transform: translateX(24px); height: 0; padding: 0; margin: 0; } }
+.row-out { animation: row-out 0.3s ease forwards; overflow: hidden; }
+
+@keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+.pulse-dot { animation: pulse-dot 1.2s ease-in-out infinite; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 1s linear infinite; }
+
+input[type="range"] { accent-color: var(--primary); }

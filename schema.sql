@@ -52,6 +52,26 @@ CREATE TABLE IF NOT EXISTS scrape_cursors (
   value TEXT NOT NULL
 );
 
+-- Data sources shown/managed in the GUI (built-in connectors + custom ones).
+CREATE TABLE IF NOT EXISTS scrape_sources (
+  id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  name       TEXT NOT NULL,
+  kind       TEXT NOT NULL DEFAULT 'api',      -- api | sitemap | manual | file
+  base_url   TEXT,
+  enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+  builtin    BOOLEAN NOT NULL DEFAULT FALSE,   -- tuned connectors; can't be deleted
+  last_sync  TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+INSERT INTO scrape_sources (name, kind, base_url, builtin, last_sync)
+SELECT * FROM (VALUES
+  ('MDL (MyDramaList)','api','https://mydramalist.com', TRUE, now()),
+  ('TVMaze','api','https://api.tvmaze.com', TRUE, now()),
+  ('Trakt','api','https://api.trakt.tv', TRUE, now()),
+  ('Viki','sitemap','https://www.viki.com', TRUE, now())
+) v(name,kind,base_url,builtin,last_sync)
+WHERE NOT EXISTS (SELECT 1 FROM scrape_sources WHERE builtin);
+
 CREATE TABLE IF NOT EXISTS scrape_runs (
   id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   started_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
