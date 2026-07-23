@@ -1,0 +1,18 @@
+{
+  "name": "r-tale-scraper",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone multi-source KR/CN drama, TV show, and movie scraper worker.",
+  "bin": { "r-tale-scraper": "src/worker.js" },
+  "scripts": {
+    "migrate": "node src/worker.js migrate",
+    "start": "node src/worker.js run --daily",
+    "burst": "node src/worker.js run --duration 45m",
+    "once": "node src/worker.js run"
+  },
+  "engines": { "node": ">=20.6" },
+  "dependencies": {
+    "pg": "^8.13.0"
+  }
+}

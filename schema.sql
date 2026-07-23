@@ -1,0 +1,66 @@
+-- R-Tale Scraper schema. Idempotent (safe to re-run). This is the SAME schema
+-- the Romantic Tales web app uses — point DATABASE_URL at that database and the
+-- scraper writes straight into it (approved = FALSE, so a human moderates).
+
+CREATE TABLE IF NOT EXISTS dramas (
+  id             TEXT PRIMARY KEY,
+  slug           TEXT UNIQUE NOT NULL,
+  title          TEXT NOT NULL,
+  original_title TEXT,
+  year           INT  NOT NULL,
+  country        TEXT NOT NULL CHECK (country IN ('KR','CN')),
+  rating         NUMERIC(3,1) NOT NULL DEFAULT 0,
+  episodes       INT  NOT NULL,
+  air_days       TEXT[] NOT NULL DEFAULT '{}',
+  status         TEXT NOT NULL CHECK (status IN ('airing','completed','upcoming')),
+  moods          TEXT[] NOT NULL DEFAULT '{}',
+  genres         TEXT[] NOT NULL DEFAULT '{}',
+  synopsis       TEXT NOT NULL,
+  poster         TEXT NOT NULL DEFAULT '',
+  watch          JSONB NOT NULL DEFAULT '[]',
+  approved       BOOLEAN NOT NULL DEFAULT FALSE,
+  tvmaze_id      INT  UNIQUE,
+  imdb_id        TEXT UNIQUE,
+  source         TEXT NOT NULL DEFAULT 'manual',
+  content_type   TEXT NOT NULL DEFAULT 'drama' CHECK (content_type IN ('drama','tv','movie')),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS dramas_status_idx       ON dramas (status);
+CREATE INDEX IF NOT EXISTS dramas_country_idx      ON dramas (country);
+CREATE INDEX IF NOT EXISTS dramas_content_type_idx ON dramas (content_type);
+CREATE INDEX IF NOT EXISTS dramas_moods_idx        ON dramas USING GIN (moods);
+CREATE INDEX IF NOT EXISTS dramas_genres_idx       ON dramas USING GIN (genres);
+
+-- For a database created before these columns existed (safe no-ops otherwise):
+ALTER TABLE dramas ADD COLUMN IF NOT EXISTS approved     BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE dramas ADD COLUMN IF NOT EXISTS tvmaze_id    INT UNIQUE;
+ALTER TABLE dramas ADD COLUMN IF NOT EXISTS imdb_id      TEXT UNIQUE;
+ALTER TABLE dramas ADD COLUMN IF NOT EXISTS source       TEXT NOT NULL DEFAULT 'manual';
+ALTER TABLE dramas ADD COLUMN IF NOT EXISTS content_type TEXT NOT NULL DEFAULT 'drama';
+
+CREATE TABLE IF NOT EXISTS posters (
+  slug       TEXT PRIMARY KEY REFERENCES dramas (slug) ON DELETE CASCADE ON UPDATE CASCADE,
+  mime       TEXT NOT NULL DEFAULT 'image/jpeg',
+  bytes      INT  NOT NULL,
+  data       BYTEA NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS scrape_cursors (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS scrape_runs (
+  id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  started_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at TIMESTAMPTZ,
+  ok          BOOLEAN NOT NULL DEFAULT FALSE,
+  found       INT NOT NULL DEFAULT 0,
+  added       INT NOT NULL DEFAULT 0,
+  refreshed   INT NOT NULL DEFAULT 0,
+  skipped     INT NOT NULL DEFAULT 0,
+  details     JSONB NOT NULL DEFAULT '{}',
+  error       TEXT
+);
