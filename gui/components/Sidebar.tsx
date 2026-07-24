@@ -40,9 +40,8 @@ export default function Sidebar({
 
   return (
     <aside
-      className={`flex h-screen shrink-0 grow-0 min-w-0 flex-col overflow-hidden border-r border-border bg-ink-2 transition-[flex-basis] duration-200 ${
-        collapsed ? "basis-16" : "basis-60"
-      }`}
+      style={{ width: collapsed ? "4rem" : "15rem" }}
+      className="flex h-screen shrink-0 grow-0 min-w-0 flex-col overflow-hidden border-r border-border bg-ink-2 transition-[width] duration-200"
     >
       {/* header: logo + collapse toggle */}
       <div className={`flex items-center py-5 ${collapsed ? "justify-center px-2" : "gap-2.5 px-5"}`}>
