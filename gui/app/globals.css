@@ -90,4 +90,25 @@ body { font-family: var(--font-body); min-height: 100vh; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin 1s linear infinite; }
 
-input[type="range"] { accent-color: var(--primary); }
+input[type="range"] { accent-color: var(--primary); cursor: pointer; }
+
+/* Tailwind v4's preflight drops the default pointer cursor on buttons — restore
+   it for every interactive control so the cursor signals "clickable". Disabled
+   controls fall back to the not-allowed cursor. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+[role="switch"]:not(:disabled),
+a[href],
+label[for],
+select:not(:disabled),
+summary,
+input[type="checkbox"]:not(:disabled),
+input[type="radio"]:not(:disabled) {
+  cursor: pointer;
+}
+button:disabled,
+[role="switch"]:disabled,
+select:disabled,
+input:disabled {
+  cursor: not-allowed;
+}
