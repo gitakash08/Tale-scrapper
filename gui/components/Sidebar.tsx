@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
-  LayoutDashboard, Gauge, Inbox, CalendarClock, Database, Settings, ScrollText, BookOpen, Clapperboard,
+  LayoutDashboard, Gauge, Inbox, CalendarClock, Database, Settings, ScrollText, BookOpen,
+  Clapperboard, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme";
 
@@ -22,40 +24,95 @@ const NAV: { id: View; label: string; icon: React.ReactNode }[] = [
 export default function Sidebar({
   view, setView, pending, hasNew = false,
 }: { view: View; setView: (v: View) => void; pending: number; hasNew?: boolean }) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  // Restore the saved state after mount (avoids a hydration mismatch — the
+  // server always renders expanded).
+  useEffect(() => {
+    try { setCollapsed(localStorage.getItem("rts-sidebar") === "1"); } catch { /* ignore */ }
+  }, []);
+  const toggle = () =>
+    setCollapsed((c) => {
+      const next = !c;
+      try { localStorage.setItem("rts-sidebar", next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+
   return (
-    <aside className="flex h-screen w-60 shrink-0 flex-col border-r border-border bg-ink-2">
-      <div className="flex items-center gap-2.5 px-5 py-5">
-        <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
+    <aside
+      className={`flex h-screen shrink-0 flex-col border-r border-border bg-ink-2 transition-[width] duration-200 ${
+        collapsed ? "w-16" : "w-60"
+      }`}
+    >
+      {/* header: logo + collapse toggle */}
+      <div className={`flex items-center py-5 ${collapsed ? "justify-center px-2" : "gap-2.5 px-5"}`}>
+        <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
           <Clapperboard className="size-5" />
         </div>
-        <div className="leading-tight">
-          <p className="font-display text-[15px] font-semibold">R-Tale Scraper</p>
-          <p className="text-[11px] text-muted-foreground">Discover K/C dramas, TV<br />shows &amp; movies — one click.</p>
-        </div>
+        {!collapsed && (
+          <div className="min-w-0 flex-1 leading-tight">
+            <p className="font-display text-[15px] font-semibold">R-Tale Scraper</p>
+            <p className="text-[11px] text-muted-foreground">Discover K/C dramas, TV<br />shows &amp; movies — one click.</p>
+          </div>
+        )}
+        {!collapsed && (
+          <button
+            onClick={toggle}
+            title="Collapse sidebar"
+            aria-label="Collapse sidebar"
+            className="tap-press grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-foreground"
+          >
+            <PanelLeftClose className="size-[18px]" />
+          </button>
+        )}
       </div>
 
-      <nav className="thin-scroll mt-2 flex-1 space-y-1 overflow-y-auto px-3">
+      {collapsed && (
+        <button
+          onClick={toggle}
+          title="Expand sidebar"
+          aria-label="Expand sidebar"
+          className="tap-press mx-auto mb-1 grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-foreground"
+        >
+          <PanelLeftOpen className="size-[18px]" />
+        </button>
+      )}
+
+      <nav className={`thin-scroll mt-1 flex-1 space-y-1 overflow-y-auto overflow-x-hidden ${collapsed ? "px-2" : "px-3"}`}>
         {NAV.map((n) => {
           const active = view === n.id;
           return (
             <button
               key={n.id}
               onClick={() => setView(n.id)}
-              className={`tap-press flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+              title={collapsed ? n.label : undefined}
+              className={`tap-press relative flex w-full items-center rounded-lg py-2.5 text-sm font-medium transition-colors ${
+                collapsed ? "justify-center px-0" : "gap-3 px-3"
+              } ${
                 active
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
               }`}
             >
               {n.icon}
-              <span className="flex-1 text-left">{n.label}</span>
-              {n.id === "queue" && pending > 0 && (
+              {!collapsed && <span className="flex-1 text-left">{n.label}</span>}
+
+              {/* expanded badges */}
+              {!collapsed && n.id === "queue" && pending > 0 && (
                 <span className="grid size-5 place-items-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
                   {pending}
                 </span>
               )}
-              {n.id === "scraper" && hasNew && (
+              {!collapsed && n.id === "scraper" && hasNew && (
                 <span title="New data available on a source" className="size-2 rounded-full bg-emerald-400 pulse-dot" />
+              )}
+
+              {/* collapsed: corner dots so signals aren't lost */}
+              {collapsed && n.id === "queue" && pending > 0 && (
+                <span className="absolute right-1 top-1 size-2 rounded-full bg-primary" />
+              )}
+              {collapsed && n.id === "scraper" && hasNew && (
+                <span className="absolute right-1 top-1 size-2 rounded-full bg-emerald-400 pulse-dot" />
               )}
             </button>
           );
@@ -63,16 +120,22 @@ export default function Sidebar({
       </nav>
 
       <div className="border-t border-border p-3">
-        <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
-          <div className="grid size-8 place-items-center rounded-full bg-secondary text-xs font-semibold">
-            AK
+        {collapsed ? (
+          <div className="flex justify-center">
+            <ThemeToggle />
           </div>
-          <div className="min-w-0 flex-1 leading-tight">
-            <p className="truncate text-sm font-medium">Admin</p>
-            <p className="truncate text-[11px] text-muted-foreground">local control panel</p>
+        ) : (
+          <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
+            <div className="grid size-8 shrink-0 place-items-center rounded-full bg-secondary text-xs font-semibold">
+              AK
+            </div>
+            <div className="min-w-0 flex-1 leading-tight">
+              <p className="truncate text-sm font-medium">Admin</p>
+              <p className="truncate text-[11px] text-muted-foreground">local control panel</p>
+            </div>
+            <ThemeToggle />
           </div>
-          <ThemeToggle />
-        </div>
+        )}
       </div>
     </aside>
   );
