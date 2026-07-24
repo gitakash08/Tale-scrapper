@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Gauge, Inbox, CalendarClock, Database, Settings, ScrollText, BookOpen,
-  Clapperboard, PanelLeftClose, PanelLeftOpen,
+  Clapperboard, ChevronsLeft, ChevronsRight,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme";
 
@@ -43,38 +43,41 @@ export default function Sidebar({
       style={{ width: collapsed ? "4rem" : "15rem" }}
       className="flex h-screen shrink-0 grow-0 min-w-0 flex-col overflow-hidden border-r border-border bg-ink-2"
     >
-      {/* header: logo + collapse toggle */}
-      <div className={`flex items-center py-5 ${collapsed ? "justify-center px-2" : "gap-2.5 px-5"}`}>
-        <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
-          <Clapperboard className="size-5" />
-        </div>
-        {!collapsed && (
-          <div className="min-w-0 flex-1 leading-tight">
-            <p className="font-display text-[15px] font-semibold">Magneto</p>
-            <p className="text-[11px] text-muted-foreground">Discover K/C dramas, TV<br />shows &amp; movies — one click.</p>
+      {/* header: logo · name · toggle on one line, tagline beneath */}
+      {collapsed ? (
+        <div className="flex flex-col items-center gap-1 py-4">
+          <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
+            <Clapperboard className="size-5" />
           </div>
-        )}
-        {!collapsed && (
           <button
             onClick={toggle}
-            title="Collapse sidebar"
-            aria-label="Collapse sidebar"
-            className="tap-press grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-foreground"
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+            className="tap-press grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-foreground"
           >
-            <PanelLeftClose className="size-[18px]" />
+            <ChevronsRight className="size-[18px]" />
           </button>
-        )}
-      </div>
-
-      {collapsed && (
-        <button
-          onClick={toggle}
-          title="Expand sidebar"
-          aria-label="Expand sidebar"
-          className="tap-press mx-auto mb-1 grid size-9 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-foreground"
-        >
-          <PanelLeftOpen className="size-[18px]" />
-        </button>
+        </div>
+      ) : (
+        <div className="px-4 py-4">
+          <div className="flex items-center gap-2.5">
+            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
+              <Clapperboard className="size-5" />
+            </div>
+            <p className="min-w-0 flex-1 truncate font-display text-[17px] font-semibold">Magneto</p>
+            <button
+              onClick={toggle}
+              title="Collapse sidebar"
+              aria-label="Collapse sidebar"
+              className="tap-press grid size-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-foreground"
+            >
+              <ChevronsLeft className="size-[18px]" />
+            </button>
+          </div>
+          <p className="mt-1.5 text-[11px] leading-tight text-muted-foreground">
+            Discover K/C dramas, TV shows &amp; movies — one click.
+          </p>
+        </div>
       )}
 
       <nav className={`thin-scroll mt-1 flex-1 space-y-1 overflow-y-auto overflow-x-hidden ${collapsed ? "px-2" : "px-3"}`}>
