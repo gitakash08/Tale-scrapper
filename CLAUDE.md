@@ -48,9 +48,22 @@ Both worker and GUI point at the SAME Postgres as the Romantic Tales app:
 - Catalog ~890 rows. **~127 pending** in the queue — inflated because rows were
   un-approved to test queue pagination; some were live before. Fastest cleanup:
   GUI → Approval Queue → Bulk approve → rating 7.5+, then review the rest.
-- **Schedules** and **Settings** pages are styled scaffolds (Settings persists to
-  localStorage; Schedules explains the `--daily` daemon). Real per-source cron +
-  start/stop-daemon-from-browser is not built.
+- **Schedules**: DONE — fully browser-driven. The **GUI server process owns a
+  tick loop** (`gui/lib/scheduler.ts`, started from `gui/instrumentation.ts`)
+  that fires due schedules via the shared job manager; the worker's Postgres
+  advisory lock still guarantees a single writer. Schedules live in the new
+  `scrape_schedules` table (kind = interval | daily | weekly | cron, JSONB
+  config, duration_min, precomputed next_run_at). Master on/off is a
+  `scrape_cursors` row (`scheduler:enabled`). Next-run math + a minimal 5-field
+  cron parser are in `gui/lib/schedule-utils.ts` (21 unit tests). API:
+  `api/schedules` (CRUD, rejects schedules that can never fire),
+  `api/schedules/daemon` (master switch + status), `api/schedules/run` (run
+  now). `SchedulesView` has the daemon toggle, a schedule list (next/last run,
+  enable/run-now/edit/delete), and a friendly builder with a live next-run
+  preview. `jobs.startJob(minutes, {trigger})` now also does a single pass when
+  minutes = 0. NOTE: schedules only fire while the GUI (`npm run dev`/`start`)
+  is running — times are in the server's LOCAL timezone.
+- **Settings** page is still a styled scaffold (persists to localStorage only).
 - **Custom sources**: DONE. The Sources page adds a source by URL into
   `scrape_sources`, and the worker now scrapes it via a **generic connector**
   (`genericCandidates()` in `src/sources.js`): robots.txt/`sitemap.xml`
@@ -67,9 +80,10 @@ Both worker and GUI point at the SAME Postgres as the Romantic Tales app:
 - Not yet packaged as a Windows `.exe` (README has the `@yao-pkg/pkg` / Node SEA steps).
 
 ## Likely next steps
-1. Build the daemon start/stop + real Schedules from the GUI.
-2. Package the `.exe` / wrap worker+GUI in Tauri or Electron for a double-click app.
-3. Native-speaker review of ko/zh/ja on the main site (romantic-tales TODO).
-4. (Custom connector polish) surface a per-source "test scrape" button in the GUI
+1. Package the `.exe` / wrap worker+GUI in Tauri or Electron for a double-click app.
+2. Native-speaker review of ko/zh/ja on the main site (romantic-tales TODO).
+3. (Custom connector polish) surface a per-source "test scrape" button in the GUI
    Sources page that calls a dry-run of `genericCandidates` so users can confirm a
    URL yields KR/CN candidates before enabling it.
+4. (Scheduler polish) optional per-schedule source selection (today a run always
+   sweeps all enabled sources), and a timezone note/picker in the UI.
