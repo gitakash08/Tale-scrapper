@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { useTheme, type Theme } from "@/components/theme";
 import PageHeader from "@/components/PageHeader";
 
 type Prefs = { appName: string; itemsPerPage: number; confirmDelete: boolean; sound: boolean };
@@ -12,6 +13,7 @@ const DEFAULTS: Prefs = { appName: "R-Tale Scraper", itemsPerPage: 20, confirmDe
 export default function SettingsView() {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULTS);
   const [saved, setSaved] = useState(false);
+  const { theme, setTheme, mounted } = useTheme();
 
   useEffect(() => {
     try { const raw = localStorage.getItem("rts-prefs"); if (raw) setPrefs({ ...DEFAULTS, ...JSON.parse(raw) }); } catch { /* */ }
@@ -39,7 +41,27 @@ export default function SettingsView() {
             {[10, 20, 30, 50].map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
         </Field>
-        <Field label="Theme"><div className="rounded-lg border border-border bg-ink-2 px-3 py-2 text-sm text-muted-foreground">Dark (default)</div></Field>
+        <Field label="Theme">
+          <div className="flex gap-2">
+            {([
+              { id: "dark" as Theme, label: "Dark", icon: Moon },
+              { id: "light" as Theme, label: "Light", icon: Sun },
+            ]).map(({ id, label, icon: Icon }) => {
+              const active = mounted && theme === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setTheme(id)}
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                    active ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Icon className="size-4" /> {label}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
         <Toggle label="Confirm before deleting" checked={prefs.confirmDelete} onChange={(v) => setPrefs({ ...prefs, confirmDelete: v })} />
         <Toggle label="Enable sound" checked={prefs.sound} onChange={(v) => setPrefs({ ...prefs, sound: v })} />
         <p className="mt-4 text-xs text-muted-foreground">Preferences are stored locally in your browser.</p>

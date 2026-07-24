@@ -64,6 +64,37 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* Dark is the default. Light mode overrides the palette PRIMITIVES so that the
+   hardcoded utilities (bg-ink-2, text-rose-light, …) and every semantic token
+   that references them (var(--color-*)) flip together — no per-component work. */
+:root { color-scheme: dark; }
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  /* surfaces + text */
+  --color-ink:        #f4f4f6; /* app background */
+  --color-ink-2:      #eaeaee; /* inputs, panels, stat tiles */
+  --color-surface:    #ffffff; /* cards */
+  --color-surface-2:  #ebedf1; /* secondary / muted */
+  --color-line:       #e1e1e8; /* borders */
+  --color-text:       #1a1a1f;
+  --color-text-dim:   #585863; /* muted-foreground */
+  --color-rose-light: #e11d48; /* readable rose for text on light */
+  /* accent scales used as TEXT on light — darken so they stay legible */
+  --color-emerald-300: #047857;
+  --color-emerald-400: #059669;
+  --color-amber-300:   #b45309;
+  /* semantic tokens that were literals (not derived from the palette above) */
+  --accent: #e6e6ee;
+}
+
+/* Hover overlays are white-on-dark (bg-white/5 etc.) — invisible on light.
+   Remap any "hover:bg-white/*" to a subtle dark tint so hovers still read.
+   Attribute-contains match keeps this robust to Tailwind's class escaping. */
+:root[data-theme="light"] [class*="hover:bg-white/"]:hover {
+  background-color: rgb(18 18 23 / 0.06);
+}
+
 * { border-color: var(--border); }
 html, body { background: var(--background); color: var(--foreground); }
 body { font-family: var(--font-body); min-height: 100vh; }

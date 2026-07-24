@@ -3,6 +3,7 @@
 import {
   LayoutDashboard, Gauge, Inbox, CalendarClock, Database, Settings, ScrollText, BookOpen, Clapperboard,
 } from "lucide-react";
+import { ThemeToggle } from "@/components/theme";
 
 export type View =
   | "dashboard" | "scraper" | "queue" | "schedules" | "sources" | "settings" | "logs" | "manual";
@@ -66,10 +67,11 @@ export default function Sidebar({
           <div className="grid size-8 place-items-center rounded-full bg-secondary text-xs font-semibold">
             AK
           </div>
-          <div className="min-w-0 leading-tight">
+          <div className="min-w-0 flex-1 leading-tight">
             <p className="truncate text-sm font-medium">Admin</p>
             <p className="truncate text-[11px] text-muted-foreground">local control panel</p>
           </div>
+          <ThemeToggle />
         </div>
       </div>
     </aside>

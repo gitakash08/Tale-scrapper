@@ -275,7 +275,7 @@ function ScheduleEditor({
                     <div key={i} className="flex items-center gap-2">
                       <input type="time" value={t}
                         onChange={(e) => setTimes(times.map((x, j) => (j === i ? e.target.value : x)))}
-                        className="rounded-lg border border-border bg-ink-2 px-3 py-1.5 text-sm outline-none focus:border-primary [color-scheme:dark]" />
+                        className="rounded-lg border border-border bg-ink-2 px-3 py-1.5 text-sm outline-none focus:border-primary" />
                       {times.length > 1 && (
                         <button onClick={() => setTimes(times.filter((_, j) => j !== i))} className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-destructive"><X className="size-4" /></button>
                       )}

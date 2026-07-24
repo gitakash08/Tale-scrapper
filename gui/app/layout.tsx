@@ -13,6 +13,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   // tags only — real mismatches inside the app still surface.
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Apply the saved theme before paint so there's no flash of the wrong
+            theme. Defaults to dark when nothing is stored. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{document.documentElement.dataset.theme=localStorage.getItem('rts-theme')||'dark'}catch(e){document.documentElement.dataset.theme='dark'}",
+          }}
+        />
+      </head>
       <body suppressHydrationWarning>{children}</body>
     </html>
   );
