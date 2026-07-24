@@ -14,8 +14,7 @@
  * token AND none changed. Any source we can't probe (null token) forces the
  * run, so we never miss new data — at worst we scrape when we didn't need to.
  */
-import { pool } from "./db.js";
-import { cursorGet, cursorSet } from "./sources.js";
+import { cursorGet, cursorSet, loadSourceConfig } from "./sources.js";
 
 const UA = "RomanticTales/1.0 (drama discovery)";
 const SIGNAL_KEY = (src) => `signal:${src}`;
@@ -108,15 +107,16 @@ async function probeSignal(src, source) {
   return null;
 }
 
-/** The sources a normal pass would actually hit, for probing. */
+/** The sources a normal pass would actually hit (respecting Sources toggles). */
 export async function activeSources() {
-  const list = [{ src: "tvmaze" }, { src: "mdl" }, { src: "viki" }];
-  if (process.env.TRAKT_CLIENT_ID) list.push({ src: "trakt" });
-  if (process.env.SIMKL_CLIENT_ID) list.push({ src: "simkl" });
-  const { rows } = await pool.query(
-    "SELECT id, name, base_url FROM scrape_sources WHERE enabled AND NOT builtin"
-  );
-  for (const r of rows) list.push({ src: `custom:${r.id}`, source: r });
+  const { enabled, custom } = await loadSourceConfig();
+  const list = [];
+  if (enabled.tvmaze) list.push({ src: "tvmaze" });
+  if (enabled.mdl) list.push({ src: "mdl" });
+  if (enabled.viki) list.push({ src: "viki" });
+  if (enabled.trakt && process.env.TRAKT_CLIENT_ID) list.push({ src: "trakt" });
+  if (enabled.simkl && process.env.SIMKL_CLIENT_ID) list.push({ src: "simkl" });
+  for (const r of custom) list.push({ src: `custom:${r.id}`, source: r });
   return list;
 }
 

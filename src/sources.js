@@ -254,6 +254,37 @@ const MDL_LISTINGS = [
   ),
 ];
 
+/**
+ * Map the GUI's scrape_sources rows to connector on/off flags. Built-in rows
+ * are matched to their connector by base_url (name as a fallback); a connector
+ * with no row defaults ON (e.g. Simkl, which isn't seeded). Custom rows return
+ * only the enabled ones. Used by BOTH the pipeline and change detection so the
+ * Sources page toggles gate everything consistently.
+ */
+const BUILTIN_SRC = [
+  { src: "tvmaze", url: /api\.tvmaze\.com/i, name: /tvmaze/i },
+  { src: "trakt", url: /api\.trakt\.tv/i, name: /trakt/i },
+  { src: "viki", url: /viki\.com/i, name: /viki/i },
+  { src: "mdl", url: /mydramalist\.com/i, name: /mdl|mydramalist/i },
+];
+
+export async function loadSourceConfig() {
+  const enabled = { tvmaze: true, trakt: true, simkl: true, mdl: true, viki: true };
+  const custom = [];
+  const { rows } = await pool.query(
+    "SELECT id, name, base_url, enabled, builtin FROM scrape_sources ORDER BY id"
+  );
+  for (const r of rows) {
+    if (r.builtin) {
+      const hit = BUILTIN_SRC.find((b) => b.url.test(r.base_url ?? "") || b.name.test(r.name ?? ""));
+      if (hit) enabled[hit.src] = r.enabled;
+    } else if (r.enabled) {
+      custom.push({ id: r.id, name: r.name, base_url: r.base_url });
+    }
+  }
+  return { enabled, custom };
+}
+
 export async function cursorGet(key, fallback) {
   const { rows } = await pool.query("SELECT value FROM scrape_cursors WHERE key = $1", [key]);
   return rows[0]?.value ?? fallback;

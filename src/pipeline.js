@@ -30,6 +30,7 @@ import { pool } from "./db.js";
 import {
   tvmazeCandidates, traktCandidates, simklCandidates, mdlCandidates,
   vikiCandidates, genericCandidates, enrichVikiWatchLinks, enrich, fetchOriginalTitle,
+  loadSourceConfig,
 } from "./sources.js";
 import { evaluateChanges, storeSignals } from "./changes.js";
 
@@ -294,46 +295,47 @@ export async function runPass(log, opts = {}) {
     );
     const quota = (s) => Math.max(0, perDay(s) - (usedToday[s] ?? 0));
 
+    // Sources page toggles gate which connectors run. A disabled built-in is
+    // skipped entirely (logged), so turning it off on the Sources page actually
+    // stops it — and change detection uses the same flags.
+    const { enabled: on, custom: customSources } = await loadSourceConfig();
+    const builtin = (src, run) =>
+      !on[src]
+        ? (log.info(`[sources] ${src}: disabled on Sources page`), [])
+        : quota(src) > 0
+          ? run()
+          : (log.info(`[sources] ${src}: daily quota reached`), Promise.resolve([]));
+
     const perSource = [
       {
-        cap: quota("tvmaze"),
-        list: quota("tvmaze") > 0
-          ? await tvmazeCandidates(log).catch((e) => (details.skipped.push(`tvmaze: ${e.message}`), []))
-          : [],
+        cap: on.tvmaze ? quota("tvmaze") : 0,
+        list: await builtin("tvmaze", () =>
+          tvmazeCandidates(log).catch((e) => (details.skipped.push(`tvmaze: ${e.message}`), []))),
       },
       {
-        cap: quota("trakt"),
-        list: quota("trakt") > 0
-          ? await traktCandidates(log).catch((e) => (details.skipped.push(`trakt: ${e.message}`), []))
-          : [],
+        cap: on.trakt ? quota("trakt") : 0,
+        list: await builtin("trakt", () =>
+          traktCandidates(log).catch((e) => (details.skipped.push(`trakt: ${e.message}`), []))),
       },
       {
-        cap: quota("simkl"),
-        list: quota("simkl") > 0
-          ? await simklCandidates(log).catch((e) => (details.skipped.push(`simkl: ${e.message}`), []))
-          : [],
+        cap: on.simkl ? quota("simkl") : 0,
+        list: await builtin("simkl", () =>
+          simklCandidates(log).catch((e) => (details.skipped.push(`simkl: ${e.message}`), []))),
       },
       {
-        cap: quota("mdl"),
-        list: quota("mdl") > 0
-          ? await mdlCandidates(log, slugs, quota("mdl")).catch((e) => (details.skipped.push(`mdl: ${e.message}`), []))
-          : (log.info("[sources] mdl: daily quota reached"), []),
+        cap: on.mdl ? quota("mdl") : 0,
+        list: await builtin("mdl", () =>
+          mdlCandidates(log, slugs, quota("mdl")).catch((e) => (details.skipped.push(`mdl: ${e.message}`), []))),
       },
       {
-        cap: quota("viki"),
-        list: quota("viki") > 0
-          ? await vikiCandidates(log, slugs, quota("viki")).catch((e) => (details.skipped.push(`viki: ${e.message}`), []))
-          : (log.info("[sources] viki: daily quota reached"), []),
+        cap: on.viki ? quota("viki") : 0,
+        list: await builtin("viki", () =>
+          vikiCandidates(log, slugs, quota("viki")).catch((e) => (details.skipped.push(`viki: ${e.message}`), []))),
       },
     ];
 
     // Custom sources added from the GUI (enabled, non-builtin). Each gets the
     // shared custom daily cap and the generic sitemap+JSON-LD connector.
-    const customSources = (
-      await pool.query(
-        "SELECT id, name, base_url FROM scrape_sources WHERE enabled AND NOT builtin"
-      )
-    ).rows;
     const crawledCustomIds = [];
     for (const cs of customSources) {
       const src = `custom:${cs.id}`;
