@@ -8,7 +8,7 @@ import { useTheme, type Theme } from "@/components/theme";
 import PageHeader from "@/components/PageHeader";
 
 type Prefs = { appName: string; itemsPerPage: number; confirmDelete: boolean; sound: boolean };
-const DEFAULTS: Prefs = { appName: "R-Tale Scraper", itemsPerPage: 20, confirmDelete: true, sound: false };
+const DEFAULTS: Prefs = { appName: "Magneto", itemsPerPage: 20, confirmDelete: true, sound: false };
 
 export default function SettingsView() {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULTS);

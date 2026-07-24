@@ -50,7 +50,7 @@ export default function Sidebar({
         </div>
         {!collapsed && (
           <div className="min-w-0 flex-1 leading-tight">
-            <p className="font-display text-[15px] font-semibold">R-Tale Scraper</p>
+            <p className="font-display text-[15px] font-semibold">Magneto</p>
             <p className="text-[11px] text-muted-foreground">Discover K/C dramas, TV<br />shows &amp; movies — one click.</p>
           </div>
         )}

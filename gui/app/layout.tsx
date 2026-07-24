@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "R-Tale Scraper — Control Panel",
+  title: "Magneto — Control Panel",
   description: "Start the scraper, review pending titles, watch the catalog grow.",
 };
 
