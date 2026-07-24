@@ -572,6 +572,288 @@ export async function enrichVikiWatchLinks(log) {
   return updated;
 }
 
+/* ── Generic custom-source connector (sitemap + JSON-LD/OpenGraph) ── */
+/**
+ * The "add any URL and scrape it" connector. Custom sources live in
+ * scrape_sources (added from the GUI); the pipeline hands each enabled,
+ * non-builtin row to genericCandidates(). We stay strictly within what a
+ * site sanctions — robots.txt Sitemap: entries and /sitemap.xml for
+ * discovery, an identifying User-Agent, polite spacing — never /search or
+ * anything robots disallows, and we never disguise the client.
+ *
+ * Each discovered page is parsed for schema.org JSON-LD (TVSeries/Movie)
+ * with OpenGraph/`<meta>` as fallback. Only KR/CN titles survive (the
+ * dramas table's country CHECK); everything else is dropped. Output matches
+ * the same candidate shape as the built-in connectors, so enrich()'s quality
+ * gate applies unchanged — incomplete pages are rejected, not stored.
+ */
+const HANGUL = /[가-힣ᄀ-ᇿ㄰-㆏]/;
+const HAN = /[一-鿿㐀-䶿]/;
+const genericSlugify = (s) =>
+  s.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "");
+
+/** Grab the `content` of the first `<meta property|name="key">` tag. */
+function metaTag(html, key) {
+  const esc = key.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const tag = html.match(
+    new RegExp(`<meta[^>]+(?:property|name)=["']${esc}["'][^>]*>`, "i")
+  )?.[0];
+  return tag ? tag.match(/content=["']([^"']*)["']/i)?.[1] ?? null : null;
+}
+
+/** All JSON-LD entities on a page, flattening @graph and arrays. */
+function jsonLdEntities(html) {
+  const out = [];
+  for (const m of html.matchAll(
+    /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+  )) {
+    try {
+      const parsed = JSON.parse(m[1].trim());
+      const arr = Array.isArray(parsed)
+        ? parsed
+        : parsed["@graph"] && Array.isArray(parsed["@graph"])
+          ? parsed["@graph"]
+          : [parsed];
+      for (const e of arr) if (e && typeof e === "object") out.push(e);
+    } catch {
+      /* malformed JSON-LD block — ignore */
+    }
+  }
+  return out;
+}
+const ldTypes = (e) =>
+  [].concat(e?.["@type"] ?? []).map((t) => String(t).toLowerCase());
+
+function extractImage(ld) {
+  const img = ld?.image ?? ld?.thumbnailUrl;
+  if (!img) return null;
+  if (typeof img === "string") return img;
+  if (Array.isArray(img)) return typeof img[0] === "string" ? img[0] : img[0]?.url ?? null;
+  return img.url ?? img.contentUrl ?? null;
+}
+
+/** Prefer a CJK alternateName as the native title; else the title if CJK. */
+function pickOriginalTitle(ld, title) {
+  const alts = [].concat(ld?.alternateName ?? []).filter((s) => typeof s === "string");
+  const cjkAlt = alts.find((a) => CJK.test(a));
+  if (cjkAlt) return cjkAlt.trim();
+  if (CJK.test(title)) return title.trim();
+  return null; // enrich() cross-fills from TVMaze
+}
+
+/** KR/CN from JSON-LD countryOfOrigin / inLanguage, og:locale, or <html lang>. */
+function detectCountry(ld, html) {
+  const norm = (v) => (typeof v === "string" ? v.toLowerCase() : "");
+  const coo = ld?.countryOfOrigin;
+  const cooName = norm(typeof coo === "string" ? coo : coo?.name ?? coo?.["@id"]);
+  if (/korea|대한민국|\bkr\b/.test(cooName)) return "KR";
+  if (/china|中国|中國|\bcn\b/.test(cooName)) return "CN";
+  const langs = [].concat(ld?.inLanguage ?? []).map((l) => norm(typeof l === "string" ? l : l?.name));
+  if (langs.some((l) => l === "ko" || l.startsWith("ko-") || l.includes("korean"))) return "KR";
+  if (langs.some((l) => l === "zh" || l.startsWith("zh") || l.includes("chinese"))) return "CN";
+  const locale = norm(metaTag(html, "og:locale"));
+  if (locale.startsWith("ko")) return "KR";
+  if (locale.startsWith("zh")) return "CN";
+  const htmlLang = norm(html.match(/<html[^>]+lang=["']([^"']+)["']/i)?.[1]);
+  if (htmlLang.startsWith("ko")) return "KR";
+  if (htmlLang.startsWith("zh")) return "CN";
+  return null;
+}
+
+/** Last-resort country guess from the script of the title/alt names. */
+function countryFromScript(title, ld) {
+  const alt = [].concat(ld?.alternateName ?? []).filter((s) => typeof s === "string").join(" ");
+  const s = `${title} ${alt}`;
+  if (HANGUL.test(s)) return "KR";
+  if (HAN.test(s)) return "CN";
+  return null;
+}
+
+/** schema.org aggregateRating → a 0–10 score, only when ≥10 votes back it. */
+function parseRating(ld) {
+  const ar = ld?.aggregateRating;
+  if (!ar) return null;
+  const val = Number(ar.ratingValue);
+  if (!Number.isFinite(val)) return null;
+  const count = Number(ar.ratingCount ?? ar.reviewCount ?? 0);
+  if (count && count < 10) return null;
+  const best = Number(ar.bestRating);
+  const round = (x) => Math.round(x * 10) / 10;
+  if (best === 5) return round(val * 2);
+  if (best === 100) return round(val / 10);
+  if (!best || best === 10) return val <= 10 ? round(val) : null;
+  return null;
+}
+
+/** Sitemap/robots discovery: return candidate detail-page URLs for a source. */
+async function discoverCustomUrls(log, source) {
+  let origin;
+  try {
+    origin = new URL(source.base_url).origin;
+  } catch {
+    log.warn(`[sources] custom(${source.name}): bad base_url`);
+    return [];
+  }
+
+  const sitemaps = [];
+  const addSitemap = (u) => {
+    try {
+      const abs = new URL(u, origin).toString();
+      if (!sitemaps.includes(abs)) sitemaps.push(abs);
+    } catch {
+      /* skip bad sitemap url */
+    }
+  };
+  if (/\.xml($|\?)/i.test(source.base_url)) addSitemap(source.base_url);
+  try {
+    const robots = await getText(`${origin}/robots.txt`);
+    for (const m of robots.matchAll(/^\s*Sitemap:\s*(\S+)/gim)) addSitemap(m[1].trim());
+  } catch {
+    /* no robots.txt — fall back to the well-known path */
+  }
+  if (sitemaps.length === 0) addSitemap(`${origin}/sitemap.xml`);
+
+  // Walk sitemaps (bounded), following one level of <sitemapindex>.
+  const urls = new Set();
+  const MAX_SITEMAPS = 8;
+  let processed = 0;
+  const queue = [...sitemaps];
+  while (queue.length && processed < MAX_SITEMAPS) {
+    const sm = queue.shift();
+    processed++;
+    try {
+      const xml = await getText(sm);
+      const locs = [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]);
+      if (/<sitemapindex/i.test(xml)) {
+        for (const l of locs) if (processed + queue.length < MAX_SITEMAPS) queue.push(l);
+      } else {
+        for (const l of locs) urls.add(l);
+      }
+    } catch (e) {
+      log.warn(`[sources] custom(${source.name}): sitemap ${sm} failed (${e.message})`);
+    }
+  }
+
+  // Fallback: no sitemap → scrape same-origin links off the base page.
+  if (urls.size === 0 && !/\.xml($|\?)/i.test(source.base_url)) {
+    try {
+      const html = await getText(source.base_url);
+      for (const m of html.matchAll(/<a[^>]+href=["']([^"'#]+)["']/gi)) {
+        try {
+          const abs = new URL(m[1], source.base_url);
+          if (abs.origin === origin) urls.add(abs.toString());
+        } catch {
+          /* skip unparseable href */
+        }
+      }
+    } catch (e) {
+      log.warn(`[sources] custom(${source.name}): base page failed (${e.message})`);
+    }
+  }
+
+  // Drop assets and sitemap files — keep plausible detail pages.
+  return [...urls].filter(
+    (u) => !/\.(xml|jpe?g|png|webp|gif|css|js|ico|svg|pdf|mp4|json)(\?|$)/i.test(u)
+  );
+}
+
+/** Parse one page into a normalized KR/CN candidate, or null if unusable. */
+async function parseGenericPage(url, source) {
+  const html = await getText(url);
+  const entities = jsonLdEntities(html);
+  const WANTED = ["tvseries", "movie", "creativework", "series", "tvseason", "videoobject"];
+  const ld = entities.find((e) => ldTypes(e).some((t) => WANTED.includes(t))) ?? null;
+
+  const ogType = (metaTag(html, "og:type") ?? "").toLowerCase();
+  const title = (
+    ld?.name ||
+    metaTag(html, "og:title") ||
+    (html.match(/<title>([^<]*)<\/title>/i)?.[1] ?? "")
+  ).trim();
+  if (!title) return null;
+
+  const country = detectCountry(ld, html) ?? countryFromScript(title, ld);
+  if (country !== "KR" && country !== "CN") return null; // schema is KR/CN-only
+
+  const isMovie = ldTypes(ld).includes("movie") || ogType.includes("movie");
+  const contentType = isMovie ? "movie" : "drama";
+  const dateStr =
+    ld?.startDate || ld?.datePublished || ld?.dateCreated || ld?.releasedEvent?.startDate || null;
+  const year = dateStr ? Number(String(dateStr).slice(0, 4)) || null : null;
+  const premiered = dateStr ? String(dateStr).slice(0, 10) : null;
+  const future = (d) => d && Date.parse(d) > Date.now();
+  const status = isMovie
+    ? future(premiered) || (year && year > new Date().getFullYear())
+      ? "upcoming"
+      : "completed"
+    : future(premiered)
+      ? "upcoming"
+      : ld?.endDate && Date.parse(ld.endDate) < Date.now()
+        ? "completed"
+        : "completed";
+
+  return {
+    src: `custom:${source.id}`,
+    contentType,
+    title,
+    originalTitle: pickOriginalTitle(ld, title),
+    year,
+    country,
+    premiered,
+    status,
+    rating: parseRating(ld),
+    genres: [].concat(ld?.genre ?? []).map((g) => String(g).trim()).filter(Boolean),
+    synopsis: stripHtml(
+      ld?.description || metaTag(html, "og:description") || metaTag(html, "description") || ""
+    ),
+    airDays: [],
+    posterUrl: extractImage(ld) || metaTag(html, "og:image") || null,
+    episodes: isMovie ? 0 : Number(ld?.numberOfEpisodes) || null,
+    tvmazeId: null,
+    imdbId: null,
+    watchUrl: url, // the source page is itself a legit "watch/info" deep link
+  };
+}
+
+/**
+ * Candidates from a custom source. Discovers pages once, cursor-paginates the
+ * URL list across runs (scrape_cursors: `custom:<id>:offset`), skips slugs
+ * already in the catalog, and parses pages until `want` KR/CN candidates are
+ * gathered. Bounded fetch budget so one run never hammers a site.
+ */
+export async function genericCandidates(log, source, existingSlugs, want) {
+  const urls = await discoverCustomUrls(log, source);
+  if (urls.length === 0) {
+    log.info(`[sources] custom(${source.name}): no pages discovered`);
+    return [];
+  }
+  log.info(`[sources] custom(${source.name}): ${urls.length} candidate pages`);
+
+  const cursorKey = `custom:${source.id}:offset`;
+  let offset = Number(await cursorGet(cursorKey, "0"));
+  if (offset >= urls.length) offset = 0;
+
+  const out = [];
+  let fetches = 0;
+  let i = offset;
+  const limit = Math.min(urls.length, want * 6, 80);
+  while (out.length < want * 2 && fetches < limit) {
+    const url = urls[i % urls.length];
+    i++;
+    if (i - offset > urls.length) break; // one full lap of the URL list
+    fetches++;
+    try {
+      const cand = await parseGenericPage(url, source);
+      if (cand && cand.title && !existingSlugs.has(genericSlugify(cand.title))) out.push(cand);
+    } catch {
+      /* page hiccup — skip */
+    }
+  }
+  await cursorSet(cursorKey, String(i % urls.length));
+  log.info(`[sources] custom(${source.name}): ${out.length} candidates (${fetches} page fetches)`);
+  return out;
+}
+
 /* ── enrichment + QUALITY GATE (TVMaze as the completion source) ──── */
 
 /** Original title from TVMaze /akas: prefer the drama's home-country aka,

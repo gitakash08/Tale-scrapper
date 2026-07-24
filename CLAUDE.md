@@ -51,14 +51,25 @@ Both worker and GUI point at the SAME Postgres as the Romantic Tales app:
 - **Schedules** and **Settings** pages are styled scaffolds (Settings persists to
   localStorage; Schedules explains the `--daily` daemon). Real per-source cron +
   start/stop-daemon-from-browser is not built.
-- **Custom sources**: Sources page adds a source by URL into `scrape_sources`,
-  but the worker does NOT yet actually scrape custom URLs — a **generic connector**
-  (sitemap + OG/JSON-LD) still needs wiring into `src/sources.js` + the pipeline.
+- **Custom sources**: DONE. The Sources page adds a source by URL into
+  `scrape_sources`, and the worker now scrapes it via a **generic connector**
+  (`genericCandidates()` in `src/sources.js`): robots.txt/`sitemap.xml`
+  discovery (follows one `<sitemapindex>` level; falls back to same-origin
+  links off the base page), then per-page schema.org JSON-LD parsing with
+  OpenGraph/`<meta>` fallback. Only KR/CN titles survive (country from JSON-LD
+  countryOfOrigin/inLanguage, og:locale, `<html lang>`, or Hangul/Han script);
+  everything else is dropped, and candidates run the same `enrich()` quality
+  gate as the built-ins. Wired into `runPass` (`src/pipeline.js`): enabled
+  non-builtin `scrape_sources` rows each get `src = "custom:<id>"`, share one
+  daily cap (`SCRAPE_CUSTOM_PER_DAY`, default 10; lifted by `--duration`
+  bursts), cursor-paginate the URL list (`scrape_cursors: custom:<id>:offset`),
+  and stamp `scrape_sources.last_sync`.
 - Not yet packaged as a Windows `.exe` (README has the `@yao-pkg/pkg` / Node SEA steps).
 
 ## Likely next steps
-1. Wire the generic custom-URL connector into the worker (the real other half of
-   "add a source and scrape it").
-2. Build the daemon start/stop + real Schedules from the GUI.
-3. Package the `.exe` / wrap worker+GUI in Tauri or Electron for a double-click app.
-4. Native-speaker review of ko/zh/ja on the main site (romantic-tales TODO).
+1. Build the daemon start/stop + real Schedules from the GUI.
+2. Package the `.exe` / wrap worker+GUI in Tauri or Electron for a double-click app.
+3. Native-speaker review of ko/zh/ja on the main site (romantic-tales TODO).
+4. (Custom connector polish) surface a per-source "test scrape" button in the GUI
+   Sources page that calls a dry-run of `genericCandidates` so users can confirm a
+   URL yields KR/CN candidates before enabling it.

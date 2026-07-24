@@ -29,7 +29,7 @@ import { setDefaultResultOrder } from "node:dns";
 import { pool } from "./db.js";
 import {
   tvmazeCandidates, traktCandidates, simklCandidates, mdlCandidates,
-  vikiCandidates, enrichVikiWatchLinks, enrich, fetchOriginalTitle,
+  vikiCandidates, genericCandidates, enrichVikiWatchLinks, enrich, fetchOriginalTitle,
 } from "./sources.js";
 
 // Docker containers often have no IPv6 route, but these APIs publish AAAA
@@ -47,7 +47,13 @@ const PER_DAY_ENV = {
   tvmaze: "SCRAPE_TVMAZE_PER_DAY", trakt: "SCRAPE_TRAKT_PER_DAY",
   simkl: "SCRAPE_SIMKL_PER_DAY", mdl: "SCRAPE_MDL_PER_DAY", viki: "SCRAPE_VIKI_PER_DAY",
 };
-export const perDay = (s) => Number(process.env[PER_DAY_ENV[s]] ?? DEFAULT_PER_DAY[s]);
+// Custom sources (src = "custom:<id>") share one intake cap; the burst lifts it
+// via the same SCRAPE_CUSTOM_PER_DAY key the discovery bursts set.
+const DEFAULT_CUSTOM_PER_DAY = 10;
+export const perDay = (s) =>
+  typeof s === "string" && s.startsWith("custom")
+    ? Number(process.env.SCRAPE_CUSTOM_PER_DAY ?? DEFAULT_CUSTOM_PER_DAY)
+    : Number(process.env[PER_DAY_ENV[s]] ?? DEFAULT_PER_DAY[s]);
 const BACKFILL_PER_RUN = 30;
 
 const slugify = (s) =>
@@ -296,6 +302,30 @@ export async function runPass(log) {
           : (log.info("[sources] viki: daily quota reached"), []),
       },
     ];
+
+    // Custom sources added from the GUI (enabled, non-builtin). Each gets the
+    // shared custom daily cap and the generic sitemap+JSON-LD connector.
+    const customSources = (
+      await pool.query(
+        "SELECT id, name, base_url FROM scrape_sources WHERE enabled AND NOT builtin"
+      )
+    ).rows;
+    const crawledCustomIds = [];
+    for (const cs of customSources) {
+      const src = `custom:${cs.id}`;
+      const cap = Math.max(0, perDay(src) - (usedToday[src] ?? 0));
+      let list = [];
+      if (cap > 0) {
+        crawledCustomIds.push(cs.id);
+        list = await genericCandidates(log, cs, slugs, cap).catch(
+          (e) => (details.skipped.push(`custom(${cs.name}): ${e.message}`), [])
+        );
+      } else {
+        log.info(`[sources] custom(${cs.name}): daily quota reached`);
+      }
+      perSource.push({ cap, list });
+    }
+
     found = perSource.reduce((n, s) => n + s.list.length, 0);
 
     for (const { cap, list: candidates } of perSource) {
@@ -341,6 +371,14 @@ export async function runPass(log) {
           details.skipped.push(`${c.title} (${c.src}): ${err.message}`);
         }
       }
+    }
+
+    // Record that we crawled each custom source this run (drives GUI "last sync").
+    if (crawledCustomIds.length) {
+      await pool.query(
+        "UPDATE scrape_sources SET last_sync = now() WHERE id = ANY($1)",
+        [crawledCustomIds]
+      );
     }
 
     // Maintenance passes (fill missing original titles, refresh airing rows).

@@ -74,7 +74,7 @@ async function migrate() {
 /** "Run for N ms": discovery passes back-to-back until the clock runs out. */
 async function burst(ms) {
   process.env.SCRAPE_SKIP_MAINTENANCE = "true"; // spend the window DISCOVERING
-  for (const k of ["TVMAZE", "TRAKT", "SIMKL", "MDL", "VIKI"])
+  for (const k of ["TVMAZE", "TRAKT", "SIMKL", "MDL", "VIKI", "CUSTOM"])
     process.env[`SCRAPE_${k}_PER_DAY`] = "1000000"; // lift daily caps for the burst
   const start = Date.now();
   const end = start + ms;
