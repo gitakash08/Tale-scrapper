@@ -40,8 +40,8 @@ export default function Sidebar({
 
   return (
     <aside
-      className={`flex h-screen shrink-0 flex-col overflow-hidden border-r border-border bg-ink-2 transition-[width] duration-200 ${
-        collapsed ? "w-16 min-w-16" : "w-60"
+      className={`flex h-screen shrink-0 grow-0 min-w-0 flex-col overflow-hidden border-r border-border bg-ink-2 transition-[flex-basis] duration-200 ${
+        collapsed ? "basis-16" : "basis-60"
       }`}
     >
       {/* header: logo + collapse toggle */}
