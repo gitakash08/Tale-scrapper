@@ -254,11 +254,11 @@ const MDL_LISTINGS = [
   ),
 ];
 
-async function cursorGet(key, fallback) {
+export async function cursorGet(key, fallback) {
   const { rows } = await pool.query("SELECT value FROM scrape_cursors WHERE key = $1", [key]);
   return rows[0]?.value ?? fallback;
 }
-async function cursorSet(key, value) {
+export async function cursorSet(key, value) {
   await pool.query(
     `INSERT INTO scrape_cursors (key, value) VALUES ($1, $2)
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,

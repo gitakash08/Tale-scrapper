@@ -1,11 +1,11 @@
 "use client";
 
 import {
-  LayoutDashboard, Gauge, Inbox, CalendarClock, Database, Settings, ScrollText, Clapperboard,
+  LayoutDashboard, Gauge, Inbox, CalendarClock, Database, Settings, ScrollText, BookOpen, Clapperboard,
 } from "lucide-react";
 
 export type View =
-  | "dashboard" | "scraper" | "queue" | "schedules" | "sources" | "settings" | "logs";
+  | "dashboard" | "scraper" | "queue" | "schedules" | "sources" | "settings" | "logs" | "manual";
 
 const NAV: { id: View; label: string; icon: React.ReactNode }[] = [
   { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard className="size-[18px]" /> },
@@ -15,6 +15,7 @@ const NAV: { id: View; label: string; icon: React.ReactNode }[] = [
   { id: "sources", label: "Sources", icon: <Database className="size-[18px]" /> },
   { id: "settings", label: "Settings", icon: <Settings className="size-[18px]" /> },
   { id: "logs", label: "Logs", icon: <ScrollText className="size-[18px]" /> },
+  { id: "manual", label: "User Manual", icon: <BookOpen className="size-[18px]" /> },
 ];
 
 export default function Sidebar({

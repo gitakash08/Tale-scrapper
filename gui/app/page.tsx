@@ -9,6 +9,7 @@ import SchedulesView from "@/components/views/SchedulesView";
 import SourcesView from "@/components/views/SourcesView";
 import SettingsView from "@/components/views/SettingsView";
 import LogsView from "@/components/views/LogsView";
+import ManualView from "@/components/views/ManualView";
 
 export default function Home() {
   const [view, setView] = useState<View>("dashboard");
@@ -41,6 +42,7 @@ export default function Home() {
           {view === "sources" && <SourcesView />}
           {view === "settings" && <SettingsView />}
           {view === "logs" && <LogsView />}
+          {view === "manual" && <ManualView />}
         </div>
       </main>
     </div>

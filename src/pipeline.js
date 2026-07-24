@@ -31,6 +31,7 @@ import {
   tvmazeCandidates, traktCandidates, simklCandidates, mdlCandidates,
   vikiCandidates, genericCandidates, enrichVikiWatchLinks, enrich, fetchOriginalTitle,
 } from "./sources.js";
+import { evaluateChanges, storeSignals } from "./changes.js";
 
 // Docker containers often have no IPv6 route, but these APIs publish AAAA
 // records — without this, fetch tries IPv6 first and dies ("fetch failed").
@@ -236,9 +237,32 @@ async function refreshAiring(log, details) {
 /* ── one full run, logged to scrape_runs ──────────────────────────── */
 let running = false;
 
-export async function runPass(log) {
+export async function runPass(log, opts = {}) {
   if (running) return;
   running = true;
+
+  // Change detection: when asked (scheduled runs), probe each active source and
+  // skip the whole pass if none has new data. Manual runs pass ifChanged=false.
+  let signals = null;
+  if (opts.ifChanged) {
+    try {
+      const { skip, tokens, summary } = await evaluateChanges(log);
+      signals = tokens;
+      if (skip) {
+        await pool.query(
+          `INSERT INTO scrape_runs (started_at, finished_at, ok, found, added, refreshed, skipped, details)
+           VALUES (now(), now(), TRUE, 0, 0, 0, 0, $1)`,
+          [JSON.stringify({ skippedNoChange: true, note: `no new data — ${summary}` })]
+        );
+        log.info("[scraper] skipped — no new data since last run");
+        running = false;
+        return;
+      }
+    } catch (e) {
+      log.warn(`[changes] probe failed (${e.message}) — running anyway`);
+    }
+  }
+
   const { rows: [run] } = await pool.query(
     "INSERT INTO scrape_runs DEFAULT VALUES RETURNING id"
   );
@@ -398,6 +422,8 @@ export async function runPass(log) {
          found=$1, added=$2, refreshed=$3, skipped=$4, details=$5 WHERE id=$6`,
       [found, added, refreshed, details.skipped.length, JSON.stringify(details), run.id]
     );
+    // Remember this run's freshness tokens so the next --if-changed run can skip.
+    if (signals) await storeSignals(signals).catch(() => {});
     log.info(`[scraper] run #${run.id} done: found ${found}, added ${added}, refreshed ${refreshed}`);
   } catch (err) {
     await pool.query(

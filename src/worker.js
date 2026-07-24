@@ -25,6 +25,7 @@ import { dirname, join } from "node:path";
 import { pool } from "./db.js";
 import { runPass, lastSuccessMs } from "./pipeline.js";
 import { enrichVikiWatchLinks } from "./sources.js";
+import { evaluateChanges, storeSignals } from "./changes.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -65,6 +66,21 @@ async function withLock(fn) {
   }
 }
 
+/**
+ * A run whose finished_at is still NULL means a previous worker was killed or
+ * crashed mid-pass (the single-writer lock guarantees no other run is live).
+ * Mark those interrupted so the Logs view can explain the termination instead
+ * of the run silently disappearing.
+ */
+async function reconcileStaleRuns() {
+  const { rowCount } = await pool.query(
+    `UPDATE scrape_runs SET ok = FALSE, finished_at = now(),
+       error = coalesce(error, 'interrupted — worker restarted or was terminated')
+     WHERE finished_at IS NULL`
+  );
+  if (rowCount) log.info(`[scraper] marked ${rowCount} interrupted run(s) from a previous session`);
+}
+
 async function migrate() {
   const sql = readFileSync(join(HERE, "..", "schema.sql"), "utf8");
   await pool.query(sql);
@@ -72,7 +88,21 @@ async function migrate() {
 }
 
 /** "Run for N ms": discovery passes back-to-back until the clock runs out. */
-async function burst(ms) {
+async function burst(ms, { ifChanged = false } = {}) {
+  // Change-detection pre-gate: if scheduled and nothing is new, don't burst.
+  let signals = null;
+  if (ifChanged) {
+    try {
+      const { skip, tokens } = await evaluateChanges(log);
+      signals = tokens;
+      if (skip) {
+        log.info("=== BURST SKIPPED — no new data since last run ===");
+        return;
+      }
+    } catch (e) {
+      log.warn(`[changes] probe failed (${e.message}) — bursting anyway`);
+    }
+  }
   process.env.SCRAPE_SKIP_MAINTENANCE = "true"; // spend the window DISCOVERING
   for (const k of ["TVMAZE", "TRAKT", "SIMKL", "MDL", "VIKI", "CUSTOM"])
     process.env[`SCRAPE_${k}_PER_DAY`] = "1000000"; // lift daily caps for the burst
@@ -93,6 +123,7 @@ async function burst(ms) {
     await sleep(3000);
   }
   log.info(`=== BURST DONE — ${pass} passes, added ${(await countRows()) - base} ===`);
+  if (signals) await storeSignals(signals).catch(() => {}); // remember freshness for next --if-changed
 }
 
 /** Background daemon: run when the last success is older than the cadence. */
@@ -122,11 +153,16 @@ try {
     case "migrate":
       await migrate();
       break;
-    case "run":
-      if (rest.includes("--daily")) await withLock(daily);
-      else if (flag("duration")) await withLock(() => burst(parseDuration(flag("duration"))));
-      else await withLock(() => runPass(log));
+    case "run": {
+      const ifChanged = rest.includes("--if-changed");
+      await withLock(async () => {
+        await reconcileStaleRuns();
+        if (rest.includes("--daily")) await daily();
+        else if (flag("duration")) await burst(parseDuration(flag("duration")), { ifChanged });
+        else await runPass(log, { ifChanged });
+      });
       break;
+    }
     case "enrich-watch-links":
       await withLock(() => enrichVikiWatchLinks(log));
       break;
@@ -136,6 +172,7 @@ try {
   node src/worker.js run --duration 45m      scrape hard for N minutes (e.g. 35m, 2h, 90s)
   node src/worker.js run --daily             background daemon (~50/day, 12h cadence)
   node src/worker.js run                      one single pass
+  node src/worker.js run --if-changed         run only if a source has new data (add to run/--duration)
   node src/worker.js enrich-watch-links       fill real Viki watch links on existing rows`);
   }
 } catch (e) {

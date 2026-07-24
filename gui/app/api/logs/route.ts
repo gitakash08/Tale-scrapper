@@ -9,24 +9,32 @@ export async function GET() {
   try {
     const { rows } = await pool.query(
       `SELECT id, started_at AS "startedAt", finished_at AS "finishedAt",
-              ok, found, added, refreshed, skipped, error
-       FROM scrape_runs ORDER BY started_at DESC LIMIT 40`
+              ok, found, added, refreshed, skipped, error, details
+       FROM scrape_runs ORDER BY started_at DESC LIMIT 60`
     );
     const logs: {
       time: string; level: "INFO" | "WARN" | "ERROR"; source: string; message: string; detail: string;
     }[] = [];
     for (const r of rows) {
       const runId = `Run #${r.id}`;
-      if (r.error) {
-        logs.push({ time: r.startedAt, level: "ERROR", source: "Scraper", message: r.error, detail: runId });
+      const when = r.finishedAt ?? r.startedAt;
+      const interrupted = typeof r.error === "string" && /interrupted/i.test(r.error);
+      if (r.details?.skippedNoChange) {
+        // change-detection skip — a scheduled run that found nothing new
+        logs.push({ time: when, level: "INFO", source: "Scheduler",
+          message: "No new data — run skipped", detail: runId });
+      } else if (r.error) {
+        // interrupted (restart/termination) reads as a warning; real errors as errors
+        logs.push({ time: when, level: interrupted ? "WARN" : "ERROR",
+          source: interrupted ? "Worker" : "Scraper", message: r.error, detail: runId });
       } else {
-        logs.push({ time: r.finishedAt ?? r.startedAt, level: "INFO", source: "Scraper",
+        logs.push({ time: when, level: "INFO", source: "Scraper",
           message: `Run completed — ${r.added} added, ${r.found} found`, detail: runId });
         if (r.added > 0)
-          logs.push({ time: r.finishedAt ?? r.startedAt, level: "INFO", source: "Catalog",
+          logs.push({ time: when, level: "INFO", source: "Catalog",
             message: `${r.added} items added to catalog`, detail: runId });
         if (r.skipped > 0)
-          logs.push({ time: r.finishedAt ?? r.startedAt, level: "WARN", source: "Validator",
+          logs.push({ time: when, level: "WARN", source: "Validator",
             message: `${r.skipped} items skipped by the quality gate`, detail: runId });
       }
     }

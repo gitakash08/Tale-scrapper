@@ -18,9 +18,10 @@ export type JobState = {
   log: string[];
   error: string | null;
   trigger: string; // "manual" | "schedule:<name>" — who started this run
+  lastExit: string | null; // how the last run ended: "ok" | "stopped by user" | "exit code N" | "signal SIGX"
 };
 
-type Store = { state: JobState; child: ChildProcess | null };
+type Store = { state: JobState; child: ChildProcess | null; stopping: boolean };
 
 const g = globalThis as unknown as { _rtsJob?: Store };
 const store: Store =
@@ -28,9 +29,10 @@ const store: Store =
   (g._rtsJob = {
     state: {
       running: false, minutes: 0, startedAt: null, finishedAt: null,
-      pass: 0, added: 0, baseline: null, log: [], error: null, trigger: "manual",
+      pass: 0, added: 0, baseline: null, log: [], error: null, trigger: "manual", lastExit: null,
     },
     child: null,
+    stopping: false,
   });
 
 // repo root = one level up from the gui/ working directory
@@ -59,19 +61,22 @@ export function getState(): JobState {
 
 export function startJob(
   minutes: number,
-  opts: { trigger?: string } = {}
+  opts: { trigger?: string; ifChanged?: boolean } = {}
 ): { ok: boolean; error?: string } {
   const s = store.state;
   if (s.running) return { ok: false, error: "A scrape is already running." };
   const single = !Number.isFinite(minutes) || minutes <= 0; // 0 = one discovery pass
   const trigger = opts.trigger ?? "manual";
+  store.stopping = false;
   Object.assign(s, {
     running: true, minutes: single ? 0 : minutes, startedAt: Date.now(), finishedAt: null,
-    pass: 0, added: 0, baseline: null, error: null, trigger,
+    pass: 0, added: 0, baseline: null, error: null, trigger, lastExit: null,
     log: [single ? "starting worker — single pass…" : `starting worker for ${minutes} minutes…`],
   });
   // A single pass runs `run` (one discovery sweep); a timed burst runs `--duration Nm`.
+  // Scheduled runs add `--if-changed` so a source with no new data is skipped.
   const args = single ? [WORKER, "run"] : [WORKER, "run", "--duration", `${minutes}m`];
+  if (opts.ifChanged) args.push("--if-changed");
   const child = spawn(process.execPath, args, {
     cwd: REPO, // so the worker loads ../.env and resolves ../schema.sql
     env: process.env,
@@ -79,17 +84,37 @@ export function startJob(
   store.child = child;
   child.stdout?.on("data", (c) => push(c.toString()));
   child.stderr?.on("data", (c) => push(c.toString()));
-  child.on("error", (e) => { s.error = e.message; s.running = false; s.finishedAt = Date.now(); });
-  child.on("exit", () => { s.running = false; s.finishedAt = Date.now(); store.child = null; });
+  child.on("error", (e) => {
+    s.error = `failed to start worker: ${e.message}`;
+    s.lastExit = s.error;
+    s.running = false;
+    s.finishedAt = Date.now();
+    store.child = null;
+  });
+  child.on("exit", (code, signal) => {
+    // Record HOW the run ended so the Logs/Scraper views can explain restarts
+    // and terminations instead of a run just silently vanishing.
+    let reason: string;
+    if (store.stopping) reason = "stopped by user";
+    else if (signal) reason = `terminated by signal ${signal}`;
+    else if (code === 0) reason = "ok";
+    else reason = `worker exited with code ${code}`;
+    s.lastExit = reason;
+    if (reason !== "ok" && !s.error) s.error = reason;
+    s.log.push(`worker ended: ${reason}`);
+    s.running = false;
+    s.finishedAt = Date.now();
+    store.child = null;
+    store.stopping = false;
+  });
   return { ok: true };
 }
 
 export function stopJob(): { ok: boolean } {
   if (store.child && store.state.running) {
+    store.stopping = true; // so the exit handler labels this a user stop, not a crash
     store.child.kill();
-    store.state.running = false;
-    store.state.finishedAt = Date.now();
-    store.state.log.push("stopped by user.");
+    store.state.log.push("stop requested by user…");
   }
   return { ok: true };
 }

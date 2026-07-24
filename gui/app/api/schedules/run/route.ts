@@ -16,7 +16,7 @@ export async function POST(req: Request) {
       [id]
     );
     if (!rows.length) return NextResponse.json({ error: "not found" }, { status: 404 });
-    const r = await fireSchedule(rows[0]);
+    const r = await fireSchedule(rows[0], { force: true });
     return NextResponse.json(r, { status: r.ok ? 200 : 409 });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 503 });

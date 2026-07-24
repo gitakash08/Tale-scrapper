@@ -36,16 +36,25 @@ export async function setMasterEnabled(on: boolean): Promise<void> {
   );
 }
 
-/** Fire a schedule now: start the job and roll its last/next run forward. */
-export async function fireSchedule(row: {
-  id: number;
-  name: string;
-  kind: ScheduleKind;
-  config: ScheduleConfig;
-  duration_min: number;
-  last_run_at: string | null;
-}): Promise<{ ok: boolean; error?: string }> {
-  const res = startJob(row.duration_min, { trigger: `schedule:${row.name}` });
+/**
+ * Fire a schedule: start the job and roll its last/next run forward.
+ * Automatic (tick) runs are change-aware; a manual "run now" forces a run.
+ */
+export async function fireSchedule(
+  row: {
+    id: number;
+    name: string;
+    kind: ScheduleKind;
+    config: ScheduleConfig;
+    duration_min: number;
+    last_run_at: string | null;
+  },
+  opts: { force?: boolean } = {}
+): Promise<{ ok: boolean; error?: string }> {
+  const res = startJob(row.duration_min, {
+    trigger: `schedule:${row.name}`,
+    ifChanged: !opts.force, // tick = change-aware; "run now" = force
+  });
   const now = new Date();
   // Anchor the next interval run on this fire; daily/weekly/cron ignore lastRun.
   const next = computeNextRun(row.kind, row.config, now, now);
