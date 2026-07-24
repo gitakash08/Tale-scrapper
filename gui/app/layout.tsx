@@ -7,9 +7,13 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // suppressHydrationWarning: browser extensions (Grammarly, reader/theme modes)
+  // inject attributes onto <html>/<body> before React hydrates, which otherwise
+  // trips a hydration-mismatch warning. This scopes the suppression to these two
+  // tags only — real mismatches inside the app still surface.
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }
