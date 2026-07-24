@@ -1,14 +1,12 @@
 "use client";
 
 import { CalendarClock, Info } from "lucide-react";
+import PageHeader from "@/components/PageHeader";
 
 export default function SchedulesView() {
   return (
     <div>
-      <header className="mb-6">
-        <h1 className="font-display text-2xl font-semibold">Schedules</h1>
-        <p className="text-sm text-muted-foreground">Automate scraping on a cadence.</p>
-      </header>
+      <PageHeader title="Schedules" subtitle="Automate scraping on a cadence." />
 
       <div className="card p-5">
         <div className="mb-4 flex items-center gap-3">

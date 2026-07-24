@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Play, Square, Loader2, ShieldCheck, RefreshCw, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import PageHeader from "@/components/PageHeader";
 
 type Status = {
   running: boolean; minutes: number; pass: number; added: number; baseline: number | null;
@@ -41,10 +42,13 @@ export default function ScraperView({ onChange }: { onChange?: () => void }) {
 
   return (
     <div>
-      <header className="mb-6">
-        <h1 className="font-display text-2xl font-semibold">Scraper</h1>
-        <p className="text-sm text-muted-foreground">Configure and run your scraping tasks.</p>
-      </header>
+      <PageHeader title="Scraper" subtitle="Configure and run your scraping tasks.">
+        {running ? (
+          <Button variant="destructive" size="sm" onClick={stop} disabled={busy}>{busy ? <Loader2 className="spin" /> : <Square />} Stop</Button>
+        ) : (
+          <Button size="sm" onClick={start} disabled={busy}>{busy ? <Loader2 className="spin" /> : <Play />} Start scraping</Button>
+        )}
+      </PageHeader>
 
       <div className="grid gap-5 lg:grid-cols-2">
         {/* New scrape */}
@@ -91,14 +95,7 @@ export default function ScraperView({ onChange }: { onChange?: () => void }) {
 
       {/* Current run */}
       <div className="mt-5 card p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-semibold">Current Run</h2>
-          {running ? (
-            <Button variant="destructive" size="sm" onClick={stop} disabled={busy}>{busy ? <Loader2 className="spin" /> : <Square />} Stop</Button>
-          ) : (
-            <Button size="sm" onClick={start} disabled={busy}>{busy ? <Loader2 className="spin" /> : <Play />} Start scraping</Button>
-          )}
-        </div>
+        <h2 className="mb-4 font-semibold">Current Run</h2>
 
         <div className="grid gap-4 lg:grid-cols-[auto_1fr]">
           <div className="flex items-center gap-4">
@@ -130,7 +127,7 @@ export default function ScraperView({ onChange }: { onChange?: () => void }) {
           </div>
         </div>
 
-        <div ref={logRef} className="thin-scroll mt-4 h-52 overflow-y-auto rounded-lg bg-ink-2 p-3 font-mono text-xs leading-relaxed">
+        <div ref={logRef} className="thin-scroll mt-4 h-40 overflow-y-auto rounded-lg bg-ink-2 p-3 font-mono text-xs leading-relaxed">
           {(status?.log ?? []).length === 0 ? <p className="text-muted-foreground">Idle. Press Start to begin.</p> :
             status!.log.map((l, i) => (
               <div key={i} className={l.includes("+ ") ? "text-emerald-300" : /WARN|ERR/.test(l) ? "text-amber-300" : "text-muted-foreground"}>{l}</div>

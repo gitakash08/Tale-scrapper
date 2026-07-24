@@ -33,7 +33,7 @@ export default function Home() {
     <div className="flex h-screen overflow-hidden">
       <Sidebar view={view} setView={setView} pending={pending} />
       <main className="thin-scroll min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
-        <div className="mx-auto max-w-[1200px] px-8 py-8">
+        <div className="mx-auto max-w-[1200px] px-8 pb-10">
           {view === "dashboard" && <DashboardView key={refreshKey} onNavigate={setView} />}
           {view === "scraper" && <ScraperView onChange={refresh} />}
           {view === "queue" && <QueueView refreshKey={refreshKey} onChange={refresh} />}

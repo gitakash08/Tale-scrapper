@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2, Database, Link2, Lock, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import PageHeader from "@/components/PageHeader";
 
 type Source = {
   id: number; name: string; kind: string; baseUrl: string;
@@ -41,13 +42,9 @@ export default function SourcesView() {
 
   return (
     <div>
-      <header className="mb-6 flex items-end justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-semibold">Sources</h1>
-          <p className="text-sm text-muted-foreground">Manage your data sources and connection settings.</p>
-        </div>
+      <PageHeader title="Sources" subtitle="Manage your data sources and connection settings.">
         <Button size="sm" onClick={() => setOpen(true)}><Plus /> Add Source</Button>
-      </header>
+      </PageHeader>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="grid grid-cols-[1.6fr_0.7fr_1.8fr_0.7fr_0.6fr] gap-3 border-b border-border px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">

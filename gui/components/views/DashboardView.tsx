@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Layers, Clock3, CheckCircle2, Film, Tv, Clapperboard, ArrowRight } from "lucide-react";
 import type { View } from "@/components/Sidebar";
+import PageHeader from "@/components/PageHeader";
 
 type Stats = {
   total: number; approved: number; pending: number; drama: number; tv: number; movie: number;
@@ -39,10 +40,7 @@ export default function DashboardView({ onNavigate }: { onNavigate: (v: View) =>
 
   return (
     <div>
-      <header className="mb-6">
-        <h1 className="font-display text-2xl font-semibold">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">Your catalog at a glance.</p>
-      </header>
+      <PageHeader title="Dashboard" subtitle="Your catalog at a glance." />
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Stat icon={<Layers className="size-5" />} label="Total in catalog" value={total} />

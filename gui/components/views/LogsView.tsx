@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Search, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
+import PageHeader from "@/components/PageHeader";
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 10;
 
 type Log = { time: string; level: "INFO" | "WARN" | "ERROR"; source: string; message: string; detail: string };
 const LEVEL: Record<string, string> = {
@@ -36,19 +37,16 @@ export default function LogsView() {
 
   return (
     <div>
-      <header className="mb-6 flex items-end justify-between gap-4">
-        <div><h1 className="font-display text-2xl font-semibold">Logs</h1><p className="text-sm text-muted-foreground">System activity and run history.</p></div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3">
-            <Search className="size-4 text-muted-foreground" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search logs…" className="w-40 bg-transparent py-2 text-sm outline-none" />
-          </div>
-          <select value={level} onChange={(e) => setLevel(e.target.value)} className="rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none">
-            {["ALL", "INFO", "WARN", "ERROR"].map((l) => <option key={l} value={l}>{l === "ALL" ? "All levels" : l}</option>)}
-          </select>
-          <button onClick={load} className="tap-press grid size-9 place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground"><RefreshCw className="size-4" /></button>
+      <PageHeader title="Logs" subtitle="System activity and run history.">
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3">
+          <Search className="size-4 text-muted-foreground" />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search logs…" className="w-40 bg-transparent py-2 text-sm outline-none" />
         </div>
-      </header>
+        <select value={level} onChange={(e) => setLevel(e.target.value)} className="rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none">
+          {["ALL", "INFO", "WARN", "ERROR"].map((l) => <option key={l} value={l}>{l === "ALL" ? "All levels" : l}</option>)}
+        </select>
+        <button onClick={load} className="tap-press grid size-9 place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground"><RefreshCw className="size-4" /></button>
+      </PageHeader>
 
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="grid grid-cols-[160px_70px_100px_1fr_100px] gap-3 border-b border-border px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">

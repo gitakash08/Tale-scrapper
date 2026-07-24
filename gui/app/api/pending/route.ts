@@ -6,7 +6,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const limit = Math.min(60, Math.max(1, Number(url.searchParams.get("limit")) || 24));
+  // the GUI paginates client-side, so fetch a generous slice of the queue
+  const limit = Math.min(500, Math.max(1, Number(url.searchParams.get("limit")) || 200));
   try {
     const { rows } = await pool.query(
       `SELECT slug, title, original_title AS "originalTitle", year, country,

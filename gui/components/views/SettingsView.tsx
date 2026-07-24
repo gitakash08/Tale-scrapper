@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import PageHeader from "@/components/PageHeader";
 
 type Prefs = { appName: string; itemsPerPage: number; confirmDelete: boolean; sound: boolean };
 const DEFAULTS: Prefs = { appName: "R-Tale Scraper", itemsPerPage: 20, confirmDelete: true, sound: false };
@@ -21,10 +22,9 @@ export default function SettingsView() {
 
   return (
     <div>
-      <header className="mb-6 flex items-end justify-between">
-        <div><h1 className="font-display text-2xl font-semibold">Settings</h1><p className="text-sm text-muted-foreground">Manage your application preferences.</p></div>
+      <PageHeader title="Settings" subtitle="Manage your application preferences.">
         <Button size="sm" onClick={save}>{saved ? <Check /> : null} {saved ? "Saved" : "Save changes"}</Button>
-      </header>
+      </PageHeader>
 
       <div className="card max-w-lg p-5">
         <h2 className="mb-4 font-semibold">General</h2>

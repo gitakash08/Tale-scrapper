@@ -3,9 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check, X, Eye, RefreshCw, Inbox, Star, CheckCheck, Sparkles, Loader2, ChevronDown,
+  ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import PageHeader from "@/components/PageHeader";
+
+const PAGE_SIZE = 10;
 
 type Item = {
   slug: string; title: string; originalTitle: string | null; year: number;
@@ -33,7 +37,7 @@ export default function QueueView({ refreshKey, onChange }: { refreshKey: number
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { pending } = await fetch("/api/pending?limit=60", { cache: "no-store" }).then((r) => r.json());
+      const { pending } = await fetch("/api/pending?limit=300", { cache: "no-store" }).then((r) => r.json());
       setItems(pending ?? []);
       setSelected(new Set());
     } catch { setItems([]); }
@@ -57,6 +61,16 @@ export default function QueueView({ refreshKey, onChange }: { refreshKey: number
     () => (tab === "all" ? items : items.filter((i) => priorityOf(i.rating) === tab)),
     [items, tab]
   );
+
+  /* ── pagination (survives optimistic removals) ── */
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [tab]);
+  const pages = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
+  const current = Math.min(page, pages);
+  useEffect(() => { if (page > pages) setPage(pages); }, [page, pages]);
+  const pageItems = shown.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
+  const from = shown.length === 0 ? 0 : (current - 1) * PAGE_SIZE + 1;
+  const to = Math.min(current * PAGE_SIZE, shown.length);
 
   /**
    * Optimistic remove: animate out, then drop from local state. Deliberately
@@ -89,16 +103,11 @@ export default function QueueView({ refreshKey, onChange }: { refreshKey: number
 
   const toggle = (slug: string) =>
     setSelected((prev) => { const n = new Set(prev); n.has(slug) ? n.delete(slug) : n.add(slug); return n; });
-  const allShownSelected = shown.length > 0 && shown.every((i) => selected.has(i.slug));
+  const allShownSelected = pageItems.length > 0 && pageItems.every((i) => selected.has(i.slug));
 
   return (
     <div>
-      <header className="mb-6 flex items-end justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-semibold">Approval Queue</h1>
-          <p className="text-sm text-muted-foreground">Review and approve scraped items before they enter the catalog.</p>
-        </div>
-        <div className="flex items-center gap-2">
+      <PageHeader title="Approval Queue" subtitle="Review and approve scraped items before they enter the catalog.">
           <Button variant="ghost" size="sm" onClick={load}><RefreshCw className={loading ? "spin" : ""} /> Refresh</Button>
           {/* Bulk approve menu */}
           <div className="relative" ref={menuRef}>
@@ -119,8 +128,7 @@ export default function QueueView({ refreshKey, onChange }: { refreshKey: number
               </div>
             )}
           </div>
-        </div>
-      </header>
+      </PageHeader>
 
       {/* Priority tabs */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -152,13 +160,13 @@ export default function QueueView({ refreshKey, onChange }: { refreshKey: number
           {/* table header */}
           <div className="flex items-center gap-3 border-b border-border px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             <input type="checkbox" className="size-4 accent-[var(--primary)]" checked={allShownSelected}
-              onChange={() => setSelected(allShownSelected ? new Set() : new Set(shown.map((i) => i.slug)))} />
+              onChange={() => setSelected(allShownSelected ? new Set() : new Set(pageItems.map((i) => i.slug)))} />
             <span className="flex-1">Item</span>
             <span className="hidden w-24 sm:block">Source</span>
             <span className="hidden w-20 md:block">Priority</span>
             <span className="w-28 text-right">Actions</span>
           </div>
-          {shown.map((it) => {
+          {pageItems.map((it) => {
             const pr = priorityOf(it.rating);
             const out = leaving.has(it.slug);
             return (
@@ -191,6 +199,24 @@ export default function QueueView({ refreshKey, onChange }: { refreshKey: number
               </div>
             );
           })}
+
+          <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm">
+            <span className="text-muted-foreground">
+              Showing <span className="text-foreground">{from}</span>–<span className="text-foreground">{to}</span> of{" "}
+              <span className="text-foreground">{shown.length}</span> items
+            </span>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={current <= 1}
+                className="tap-press grid size-8 place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground disabled:opacity-30">
+                <ChevronLeft className="size-4" />
+              </button>
+              <span className="px-2 tabular-nums text-muted-foreground">{current} / {pages}</span>
+              <button onClick={() => setPage((p) => Math.min(pages, p + 1))} disabled={current >= pages}
+                className="tap-press grid size-8 place-items-center rounded-lg border border-border text-muted-foreground hover:text-foreground disabled:opacity-30">
+                <ChevronRight className="size-4" />
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
