@@ -17,6 +17,7 @@ export type JobState = {
   baseline: number | null;
   log: string[];
   error: string | null;
+  trigger: string; // "manual" | "schedule:<name>" — who started this run
 };
 
 type Store = { state: JobState; child: ChildProcess | null };
@@ -27,7 +28,7 @@ const store: Store =
   (g._rtsJob = {
     state: {
       running: false, minutes: 0, startedAt: null, finishedAt: null,
-      pass: 0, added: 0, baseline: null, log: [], error: null,
+      pass: 0, added: 0, baseline: null, log: [], error: null, trigger: "manual",
     },
     child: null,
   });
@@ -56,14 +57,22 @@ export function getState(): JobState {
   return store.state;
 }
 
-export function startJob(minutes: number): { ok: boolean; error?: string } {
+export function startJob(
+  minutes: number,
+  opts: { trigger?: string } = {}
+): { ok: boolean; error?: string } {
   const s = store.state;
   if (s.running) return { ok: false, error: "A scrape is already running." };
+  const single = !Number.isFinite(minutes) || minutes <= 0; // 0 = one discovery pass
+  const trigger = opts.trigger ?? "manual";
   Object.assign(s, {
-    running: true, minutes, startedAt: Date.now(), finishedAt: null,
-    pass: 0, added: 0, baseline: null, log: [`starting worker for ${minutes} minutes…`], error: null,
+    running: true, minutes: single ? 0 : minutes, startedAt: Date.now(), finishedAt: null,
+    pass: 0, added: 0, baseline: null, error: null, trigger,
+    log: [single ? "starting worker — single pass…" : `starting worker for ${minutes} minutes…`],
   });
-  const child = spawn(process.execPath, [WORKER, "run", "--duration", `${minutes}m`], {
+  // A single pass runs `run` (one discovery sweep); a timed burst runs `--duration Nm`.
+  const args = single ? [WORKER, "run"] : [WORKER, "run", "--duration", `${minutes}m`];
+  const child = spawn(process.execPath, args, {
     cwd: REPO, // so the worker loads ../.env and resolves ../schema.sql
     env: process.env,
   });

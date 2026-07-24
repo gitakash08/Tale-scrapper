@@ -72,6 +72,29 @@ SELECT * FROM (VALUES
 ) v(name,kind,base_url,builtin,last_sync)
 WHERE NOT EXISTS (SELECT 1 FROM scrape_sources WHERE builtin);
 
+-- GUI-owned scheduler: each row is one recurring rule the control panel fires.
+-- kind decides how `config` (JSONB) is read:
+--   interval  {intervalMinutes}
+--   daily     {times:["HH:MM", ...]}
+--   weekly    {days:[0..6 (0=Sun)], times:["HH:MM", ...]}
+--   cron      {expr:"m h dom mon dow"}
+-- duration_min is how long the triggered burst runs (0 = a single pass).
+-- next_run_at is precomputed by the GUI so the tick loop is a cheap lookup.
+CREATE TABLE IF NOT EXISTS scrape_schedules (
+  id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  name         TEXT NOT NULL,
+  enabled      BOOLEAN NOT NULL DEFAULT TRUE,
+  kind         TEXT NOT NULL DEFAULT 'daily'
+                 CHECK (kind IN ('interval','daily','weekly','cron')),
+  config       JSONB NOT NULL DEFAULT '{}',
+  duration_min INT  NOT NULL DEFAULT 30 CHECK (duration_min BETWEEN 0 AND 180),
+  last_run_at  TIMESTAMPTZ,
+  next_run_at  TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS scrape_schedules_due_idx
+  ON scrape_schedules (next_run_at) WHERE enabled;
+
 CREATE TABLE IF NOT EXISTS scrape_runs (
   id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   started_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
