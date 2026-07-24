@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Trash2, Database, Link2, Lock, X, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import PageHeader from "@/components/PageHeader";
 
 type Source = {
@@ -58,10 +59,10 @@ export default function SourcesView() {
             </div>
             <span className="capitalize text-muted-foreground">{s.kind}</span>
             <span className="truncate text-muted-foreground">{s.baseUrl}</span>
-            <button onClick={() => toggle(s)} className="flex w-fit items-center gap-1.5">
-              <span className={`size-2 rounded-full ${s.enabled ? "bg-emerald-400" : "bg-muted-foreground"}`} />
-              <span className={s.enabled ? "text-emerald-400" : "text-muted-foreground"}>{s.enabled ? "Active" : "Inactive"}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <Switch size="sm" variant="success" checked={s.enabled} onCheckedChange={() => toggle(s)} aria-label={`${s.enabled ? "Disable" : "Enable"} ${s.name}`} />
+              <span className={`text-xs ${s.enabled ? "text-emerald-400" : "text-muted-foreground"}`}>{s.enabled ? "Active" : "Inactive"}</span>
+            </div>
             <div className="flex justify-end gap-1">
               {s.builtin ? (
                 <span className="grid size-8 place-items-center text-muted-foreground/40" title="Built-in tuned connector"><Lock className="size-4" /></span>

@@ -6,6 +6,7 @@ import {
   Repeat, CalendarDays, Terminal, X, Check, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import PageHeader from "@/components/PageHeader";
 import {
   computeNextRun, humanizeSchedule, relativeTime, WEEKDAYS,
@@ -108,13 +109,7 @@ export default function SchedulesView() {
               <span className={`size-2 rounded-full ${on ? "bg-emerald-400 pulse-dot" : "bg-muted-foreground"}`} />
               {on ? "Active" : "Paused"}
             </span>
-            <button
-              onClick={toggleDaemon} disabled={busy}
-              className={`relative h-6 w-11 rounded-full transition-colors disabled:opacity-50 ${on ? "bg-emerald-500" : "bg-secondary"}`}
-              aria-label="Toggle scheduler"
-            >
-              <span className={`absolute top-0.5 size-5 rounded-full bg-white transition-transform ${on ? "translate-x-[22px]" : "translate-x-0.5"}`} />
-            </button>
+            <Switch checked={on} onCheckedChange={toggleDaemon} disabled={busy} variant="success" aria-label="Toggle scheduler" />
           </div>
         </div>
       </div>
@@ -165,9 +160,7 @@ export default function SchedulesView() {
               <button onClick={() => runNow(s)} title="Run now" className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-emerald-400"><Play className="size-4" /></button>
               <button onClick={() => setDraft({ id: s.id, name: s.name, kind: s.kind, config: s.config, durationMin: s.durationMin })} title="Edit" className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-foreground"><Pencil className="size-4" /></button>
               <button onClick={() => remove(s)} title="Delete" className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-destructive"><Trash2 className="size-4" /></button>
-              <button onClick={() => toggleSchedule(s)} title={s.enabled ? "Disable" : "Enable"} className={`relative ml-1 h-5 w-9 rounded-full transition-colors ${s.enabled ? "bg-primary" : "bg-secondary"}`}>
-                <span className={`absolute top-0.5 size-4 rounded-full bg-white transition-transform ${s.enabled ? "translate-x-[18px]" : "translate-x-0.5"}`} />
-              </button>
+              <Switch size="sm" checked={s.enabled} onCheckedChange={() => toggleSchedule(s)} title={s.enabled ? "Disable" : "Enable"} aria-label={s.enabled ? "Disable schedule" : "Enable schedule"} className="ml-1" />
             </div>
           </div>
         ))}
