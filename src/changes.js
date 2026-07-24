@@ -155,4 +155,36 @@ export async function storeSignals(tokens) {
   for (const [src, token] of Object.entries(tokens ?? {})) {
     await cursorSet(SIGNAL_KEY(src), token);
   }
+  // We just acknowledged the current source state, so any "what's new" snapshot
+  // is stale — force the UI's next check to recompute (clears the "new" signs).
+  await cursorSet("updates:checked_at", "0");
+}
+
+const SOURCE_LABEL = { tvmaze: "TVMaze", trakt: "Trakt", simkl: "Simkl", mdl: "MDL", viki: "Viki" };
+
+/**
+ * Read-only "what's new since our last scrape" probe for the UI. Same signals
+ * as evaluateChanges, but per-source and WITHOUT storing — so a source stays
+ * flagged "new" until an actual scrape acknowledges it. Never scrapes.
+ *   status: "new"     — source changed (or never scraped) → worth a run
+ *           "same"    — nothing new since last run
+ *           "unknown" — couldn't get a signal (treated as run-worthy elsewhere)
+ */
+export async function probeUpdates() {
+  const sources = await activeSources();
+  const statuses = [];
+  let hasNew = false;
+  for (const { src, source } of sources) {
+    const token = await probeSignal(src, source).catch(() => null);
+    let status;
+    if (token == null) {
+      status = "unknown";
+    } else {
+      const prev = await cursorGet(SIGNAL_KEY(src), null);
+      status = prev === token ? "same" : "new"; // never-scraped (prev null) → new
+    }
+    if (status === "new") hasNew = true;
+    statuses.push({ src, name: source?.name ?? SOURCE_LABEL[src] ?? src, status });
+  }
+  return { hasNew, statuses };
 }

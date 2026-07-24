@@ -242,14 +242,16 @@ export async function runPass(log, opts = {}) {
   if (running) return;
   running = true;
 
-  // Change detection: when asked (scheduled runs), probe each active source and
-  // skip the whole pass if none has new data. Manual runs pass ifChanged=false.
+  // Change detection: probe each active source once. When scheduled
+  // (ifChanged), skip the whole pass if nothing is new; either way remember the
+  // tokens so a successful run acknowledges the current source state. Burst
+  // passes set noSignals so only the burst wrapper probes/stores, not each pass.
   let signals = null;
-  if (opts.ifChanged) {
+  if (!opts.noSignals) {
     try {
       const { skip, tokens, summary } = await evaluateChanges(log);
       signals = tokens;
-      if (skip) {
+      if (opts.ifChanged && skip) {
         await pool.query(
           `INSERT INTO scrape_runs (started_at, finished_at, ok, found, added, refreshed, skipped, details)
            VALUES (now(), now(), TRUE, 0, 0, 0, 0, $1)`,

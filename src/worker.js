@@ -25,7 +25,8 @@ import { dirname, join } from "node:path";
 import { pool } from "./db.js";
 import { runPass, lastSuccessMs } from "./pipeline.js";
 import { enrichVikiWatchLinks } from "./sources.js";
-import { evaluateChanges, storeSignals } from "./changes.js";
+import { evaluateChanges, storeSignals, probeUpdates } from "./changes.js";
+import { cursorSet } from "./sources.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -87,21 +88,33 @@ async function migrate() {
   log.info("schema applied.");
 }
 
+/**
+ * Probe every active source for "new data since our last scrape" and cache the
+ * result in scrape_cursors for the GUI. Read-only — takes no advisory lock and
+ * never stores signals, so a source stays flagged "new" until an actual scrape.
+ */
+async function checkUpdates() {
+  const { hasNew, statuses } = await probeUpdates();
+  const snapshot = { checkedAt: new Date().toISOString(), hasNew, sources: statuses };
+  await cursorSet("updates:snapshot", JSON.stringify(snapshot));
+  await cursorSet("updates:checked_at", snapshot.checkedAt);
+  log.info(`[updates] ${statuses.map((s) => `${s.src}=${s.status}`).join(" ")} → hasNew=${hasNew}`);
+}
+
 /** "Run for N ms": discovery passes back-to-back until the clock runs out. */
 async function burst(ms, { ifChanged = false } = {}) {
-  // Change-detection pre-gate: if scheduled and nothing is new, don't burst.
+  // Probe once up front: gate the burst when scheduled (--if-changed) and record
+  // the tokens so the run acknowledges the current source state at the end.
   let signals = null;
-  if (ifChanged) {
-    try {
-      const { skip, tokens } = await evaluateChanges(log);
-      signals = tokens;
-      if (skip) {
-        log.info("=== BURST SKIPPED — no new data since last run ===");
-        return;
-      }
-    } catch (e) {
-      log.warn(`[changes] probe failed (${e.message}) — bursting anyway`);
+  try {
+    const { skip, tokens } = await evaluateChanges(log);
+    signals = tokens;
+    if (ifChanged && skip) {
+      log.info("=== BURST SKIPPED — no new data since last run ===");
+      return;
     }
+  } catch (e) {
+    log.warn(`[changes] probe failed (${e.message}) — bursting anyway`);
   }
   process.env.SCRAPE_SKIP_MAINTENANCE = "true"; // spend the window DISCOVERING
   for (const k of ["TVMAZE", "TRAKT", "SIMKL", "MDL", "VIKI", "CUSTOM"])
@@ -115,7 +128,7 @@ async function burst(ms, { ifChanged = false } = {}) {
     // don't start a new pass with < 90s left
     log.info(`--- pass ${++pass} (t+${((Date.now() - start) / 60000).toFixed(1)}m) ---`);
     try {
-      await runPass(log);
+      await runPass(log, { noSignals: true }); // burst handles signals once, not per pass
     } catch (e) {
       log.error(`pass ${pass}: ${e.message}`);
     }
@@ -163,6 +176,9 @@ try {
       });
       break;
     }
+    case "check-updates":
+      await checkUpdates(); // read-only; no advisory lock needed
+      break;
     case "enrich-watch-links":
       await withLock(() => enrichVikiWatchLinks(log));
       break;
@@ -173,6 +189,7 @@ try {
   node src/worker.js run --daily             background daemon (~50/day, 12h cadence)
   node src/worker.js run                      one single pass
   node src/worker.js run --if-changed         run only if a source has new data (add to run/--duration)
+  node src/worker.js check-updates            probe sources for new data (updates the GUI's "what's new")
   node src/worker.js enrich-watch-links       fill real Viki watch links on existing rows`);
   }
 } catch (e) {

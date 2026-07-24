@@ -19,8 +19,8 @@ const NAV: { id: View; label: string; icon: React.ReactNode }[] = [
 ];
 
 export default function Sidebar({
-  view, setView, pending,
-}: { view: View; setView: (v: View) => void; pending: number }) {
+  view, setView, pending, hasNew = false,
+}: { view: View; setView: (v: View) => void; pending: number; hasNew?: boolean }) {
   return (
     <aside className="flex h-screen w-60 shrink-0 flex-col border-r border-border bg-ink-2">
       <div className="flex items-center gap-2.5 px-5 py-5">
@@ -52,6 +52,9 @@ export default function Sidebar({
                 <span className="grid size-5 place-items-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground">
                   {pending}
                 </span>
+              )}
+              {n.id === "scraper" && hasNew && (
+                <span title="New data available on a source" className="size-2 rounded-full bg-emerald-400 pulse-dot" />
               )}
             </button>
           );

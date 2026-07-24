@@ -15,6 +15,8 @@ export default function Home() {
   const [view, setView] = useState<View>("dashboard");
   const [refreshKey, setRefreshKey] = useState(0);
   const [pending, setPending] = useState(0);
+  const [hasNew, setHasNew] = useState(false);
+  const [newCount, setNewCount] = useState(0);
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   useEffect(() => {
@@ -29,14 +31,28 @@ export default function Home() {
     return () => { alive = false; clearInterval(id); };
   }, [refreshKey]);
 
+  // "What's new on sources" — reads the cached snapshot (server re-probes at most
+  // once a day), so this poll is cheap. Drives the sidebar dot + Scraper banner.
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      fetch("/api/sources/updates", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((u) => { if (alive) { setHasNew(!!u.hasNew); setNewCount(u.newCount ?? 0); } })
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 60000);
+    return () => { alive = false; clearInterval(id); };
+  }, [refreshKey]);
+
   return (
     // Viewport-locked shell: the sidebar stays fixed, only <main> scrolls.
     <div className="flex h-screen overflow-hidden">
-      <Sidebar view={view} setView={setView} pending={pending} />
+      <Sidebar view={view} setView={setView} pending={pending} hasNew={hasNew} />
       <main className="thin-scroll min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
         <div className="mx-auto max-w-[1200px] px-8 pb-10">
           {view === "dashboard" && <DashboardView key={refreshKey} onNavigate={setView} />}
-          {view === "scraper" && <ScraperView onChange={refresh} />}
+          {view === "scraper" && <ScraperView onChange={refresh} newCount={hasNew ? newCount : 0} />}
           {view === "queue" && <QueueView refreshKey={refreshKey} onChange={refresh} />}
           {view === "schedules" && <SchedulesView />}
           {view === "sources" && <SourcesView />}

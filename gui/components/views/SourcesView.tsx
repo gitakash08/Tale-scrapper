@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2, Database, Link2, Lock, X, Loader2 } from "lucide-react";
+import { Plus, Trash2, Database, Link2, Lock, X, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import PageHeader from "@/components/PageHeader";
@@ -11,8 +11,23 @@ type Source = {
   enabled: boolean; builtin: boolean; lastSync: string | null;
 };
 
+type UpdatesSnap = { checkedAt: string | null; sources: { src: string; status: "new" | "same" | "unknown" }[] };
+
+/** Map a source row to the connector key used in the updates snapshot. */
+function srcKey(s: Source): string {
+  if (!s.builtin) return `custom:${s.id}`;
+  const u = (s.baseUrl ?? "").toLowerCase();
+  if (u.includes("tvmaze")) return "tvmaze";
+  if (u.includes("trakt")) return "trakt";
+  if (u.includes("viki")) return "viki";
+  if (u.includes("mydramalist")) return "mdl";
+  return "";
+}
+
 export default function SourcesView() {
   const [sources, setSources] = useState<Source[]>([]);
+  const [updates, setUpdates] = useState<UpdatesSnap>({ checkedAt: null, sources: [] });
+  const [checking, setChecking] = useState(false);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: "", baseUrl: "", kind: "sitemap" });
   const [saving, setSaving] = useState(false);
@@ -20,7 +35,17 @@ export default function SourcesView() {
 
   const load = useCallback(() =>
     fetch("/api/sources", { cache: "no-store" }).then((r) => r.json()).then((d) => setSources(d.sources ?? [])).catch(() => {}), []);
-  useEffect(() => { load(); }, [load]);
+  const loadUpdates = useCallback((refresh = false) =>
+    fetch(`/api/sources/updates${refresh ? "?refresh=1" : ""}`, { cache: "no-store" })
+      .then((r) => r.json()).then((d) => setUpdates({ checkedAt: d.checkedAt ?? null, sources: d.sources ?? [] })).catch(() => {}), []);
+  useEffect(() => { load(); loadUpdates(); }, [load, loadUpdates]);
+
+  const statusOf = (s: Source) => updates.sources.find((u) => u.src === srcKey(s))?.status;
+  async function checkNow() {
+    setChecking(true);
+    await loadUpdates(true); // server enforces the 1h cooldown
+    setChecking(false);
+  }
 
   async function add() {
     setErr("");
@@ -44,6 +69,12 @@ export default function SourcesView() {
   return (
     <div>
       <PageHeader title="Sources" subtitle="Manage your data sources and connection settings.">
+        <span className="mr-1 hidden text-xs text-muted-foreground sm:inline">
+          {updates.checkedAt ? `Checked ${new Date(updates.checkedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}` : "Not checked yet"}
+        </span>
+        <Button size="sm" variant="secondary" onClick={checkNow} disabled={checking}>
+          {checking ? <Loader2 className="spin" /> : <RefreshCw />} Check for updates
+        </Button>
         <Button size="sm" onClick={() => setOpen(true)}><Plus /> Add Source</Button>
       </PageHeader>
 
@@ -56,6 +87,11 @@ export default function SourcesView() {
             <div className="flex items-center gap-2 font-medium">
               <Database className="size-4 text-muted-foreground" /> {s.name}
               {s.builtin && <Lock className="size-3 text-muted-foreground" />}
+              {s.enabled && statusOf(s) === "new" && (
+                <span title="This source has new data since your last scrape" className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300">
+                  <Sparkles className="size-2.5" /> New
+                </span>
+              )}
             </div>
             <span className="capitalize text-muted-foreground">{s.kind}</span>
             <span className="truncate text-muted-foreground">{s.baseUrl}</span>

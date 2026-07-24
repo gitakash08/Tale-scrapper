@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Play, Square, Loader2, ShieldCheck, RefreshCw, Zap } from "lucide-react";
+import { Play, Square, Loader2, ShieldCheck, RefreshCw, Zap, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import PageHeader from "@/components/PageHeader";
 
@@ -15,7 +15,7 @@ const fmt = (ms: number) => {
   return `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 };
 
-export default function ScraperView({ onChange }: { onChange?: () => void }) {
+export default function ScraperView({ onChange, newCount = 0 }: { onChange?: () => void; newCount?: number }) {
   const [minutes, setMinutes] = useState(30);
   const [status, setStatus] = useState<Status | null>(null);
   const [sources, setSources] = useState<Source[]>([]);
@@ -49,6 +49,19 @@ export default function ScraperView({ onChange }: { onChange?: () => void }) {
           <Button size="sm" onClick={start} disabled={busy}>{busy ? <Loader2 className="spin" /> : <Play />} Start scraping</Button>
         )}
       </PageHeader>
+
+      {newCount > 0 && !running && (
+        <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 fade-up">
+          <Sparkles className="size-5 shrink-0 text-emerald-400" />
+          <p className="text-sm">
+            <span className="font-semibold text-emerald-300">New data available</span>
+            <span className="text-muted-foreground"> on {newCount} source{newCount > 1 ? "s" : ""} — start a scrape to pull it in.</span>
+          </p>
+          <Button size="sm" variant="success" className="ml-auto" onClick={start} disabled={busy}>
+            {busy ? <Loader2 className="spin" /> : <Play />} Start scraping
+          </Button>
+        </div>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-2">
         {/* New scrape */}
