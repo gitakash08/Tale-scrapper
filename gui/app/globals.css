@@ -84,6 +84,8 @@
   --color-emerald-300: #047857;
   --color-emerald-400: #059669;
   --color-amber-300:   #b45309;
+  --color-sky-300:     #0369a1; /* "updated" diff text */
+  --color-sky-400:     #0284c7; /* "updated" accents/bars */
   /* semantic tokens that were literals (not derived from the palette above) */
   --accent: #e6e6ee;
 }
