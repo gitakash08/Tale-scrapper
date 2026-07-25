@@ -118,6 +118,15 @@ CREATE TABLE IF NOT EXISTS scrape_schedules (
 );
 CREATE INDEX IF NOT EXISTS scrape_schedules_due_idx
   ON scrape_schedules (next_run_at) WHERE enabled;
+-- What the schedule runs, independent of WHEN (kind) and HOW LONG (duration_min):
+--   discovery = find new titles (honours duration_min)
+--   refresh   = re-read ongoing titles only (episodes/status/rating; ignores duration)
+-- Defaults to discovery so pre-existing schedules keep their current behaviour.
+ALTER TABLE scrape_schedules ADD COLUMN IF NOT EXISTS job TEXT NOT NULL DEFAULT 'discovery';
+DO $$ BEGIN
+  ALTER TABLE scrape_schedules ADD CONSTRAINT scrape_schedules_job_chk
+    CHECK (job IN ('discovery', 'refresh'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 CREATE TABLE IF NOT EXISTS scrape_runs (
   id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

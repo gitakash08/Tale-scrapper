@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarClock, Plus, Play, Trash2, Pencil, Loader2, Info, Clock,
-  Repeat, CalendarDays, Terminal, X, Check, Zap,
+  Repeat, CalendarDays, Terminal, X, Check, Zap, RefreshCw, Telescope,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -14,7 +14,11 @@ import {
 } from "@/lib/schedule-utils";
 
 type Daemon = { enabled: boolean; running: boolean; trigger: string; next: { name: string; nextRunAt: string } | null };
-type Draft = { id?: number; name: string; kind: ScheduleKind; config: ScheduleConfig; durationMin: number };
+type JobKind = "discovery" | "refresh";
+type Draft = {
+  id?: number; name: string; kind: ScheduleKind; config: ScheduleConfig;
+  durationMin: number; job: JobKind;
+};
 
 const KIND_META: { kind: ScheduleKind; label: string; icon: typeof Clock }[] = [
   { kind: "interval", label: "Interval", icon: Repeat },
@@ -27,9 +31,13 @@ const INTERVAL_PRESETS = [
   { m: 360, label: "6 hours" }, { m: 720, label: "12 hours" }, { m: 1440, label: "Daily" },
 ];
 const blankDraft = (): Draft => ({
-  name: "", kind: "daily", durationMin: 30,
+  name: "", kind: "daily", durationMin: 30, job: "discovery",
   config: { intervalMinutes: 720, times: ["09:00"], days: [1, 3, 5], expr: "0 */6 * * *" },
 });
+const JOB_META: Record<JobKind, { label: string; hint: string }> = {
+  discovery: { label: "Discovery", hint: "Find and add new titles." },
+  refresh: { label: "Refresh", hint: "Update ongoing titles — episodes, status and rating. Fast; adds nothing." },
+};
 const fmtAbs = (iso: string | null) => (iso ? new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "—");
 
 export default function SchedulesView() {
@@ -142,9 +150,17 @@ export default function SchedulesView() {
               <div className="flex items-center gap-2">
                 <p className="truncate font-semibold">{s.name}</p>
                 <span className="rounded bg-ink-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">{s.kind}</span>
+                {s.job === "refresh" && (
+                  <span className="flex items-center gap-1 rounded bg-sky-400/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-300">
+                    <RefreshCw className="size-2.5" /> Refresh
+                  </span>
+                )}
               </div>
               <p className="text-xs text-muted-foreground">
-                {humanizeSchedule(s.kind, s.config)} · {s.durationMin === 0 ? "single pass" : `${s.durationMin} min burst`}
+                {humanizeSchedule(s.kind, s.config)} ·{" "}
+                {s.job === "refresh"
+                  ? "updates ongoing titles"
+                  : s.durationMin === 0 ? "single pass" : `${s.durationMin} min burst`}
               </p>
             </div>
             <div className="text-right text-xs">
@@ -158,7 +174,7 @@ export default function SchedulesView() {
             </div>
             <div className="flex items-center gap-1">
               <button onClick={() => runNow(s)} title="Run now" className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-emerald-400"><Play className="size-4" /></button>
-              <button onClick={() => setDraft({ id: s.id, name: s.name, kind: s.kind, config: s.config, durationMin: s.durationMin })} title="Edit" className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-foreground"><Pencil className="size-4" /></button>
+              <button onClick={() => setDraft({ id: s.id, name: s.name, kind: s.kind, config: s.config, durationMin: s.durationMin, job: s.job === "refresh" ? "refresh" : "discovery" })} title="Edit" className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-foreground"><Pencil className="size-4" /></button>
               <button onClick={() => remove(s)} title="Delete" className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-destructive"><Trash2 className="size-4" /></button>
               <Switch size="sm" checked={s.enabled} onCheckedChange={() => toggleSchedule(s)} title={s.enabled ? "Disable" : "Enable"} aria-label={s.enabled ? "Disable schedule" : "Enable schedule"} className="ml-1" />
             </div>
@@ -195,7 +211,10 @@ function ScheduleEditor({
     if (!draft.name.trim()) { setError("Give the schedule a name."); return; }
     if (!preview) { setError("This schedule never fires — check its timing."); return; }
     setSaving(true); setError(null);
-    const body = { name: draft.name.trim(), kind: draft.kind, config: cfg, durationMin: draft.durationMin };
+    const body = {
+      name: draft.name.trim(), kind: draft.kind, config: cfg,
+      durationMin: draft.durationMin, job: draft.job,
+    };
     const res = draft.id
       ? await fetch("/api/schedules", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: draft.id, ...body }) })
       : await fetch("/api/schedules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -298,22 +317,41 @@ function ScheduleEditor({
           </div>
         </div>
 
-        {/* duration + preview */}
+        {/* what to run + duration + preview */}
         <div>
-          <Label>Scrape intensity</Label>
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            {[0, 15, 30, 45, 60].map((m) => (
-              <button key={m} onClick={() => setDraft({ ...draft, durationMin: m })}
-                className={`rounded-lg px-3 py-1 text-xs font-medium ${draft.durationMin === m ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground hover:text-foreground"}`}>{m === 0 ? "Single pass" : `${m}m`}</button>
+          <Label>What to run</Label>
+          <div className="mb-4 flex flex-wrap gap-1.5">
+            {(Object.keys(JOB_META) as JobKind[]).map((j) => (
+              <button key={j} onClick={() => setDraft({ ...draft, job: j })}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  draft.job === j ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground hover:text-foreground"
+                }`}>
+                {j === "refresh" ? <RefreshCw className="size-3.5" /> : <Telescope className="size-3.5" />}
+                {JOB_META[j].label}
+              </button>
             ))}
           </div>
-          <input type="range" min={0} max={120} step={5} value={draft.durationMin}
-            onChange={(e) => setDraft({ ...draft, durationMin: Number(e.target.value) })} className="w-full" />
-          <p className="mt-1 text-xs text-muted-foreground">
-            {draft.durationMin === 0
-              ? "One discovery pass across all sources (fast, light)."
-              : `Scrape hard for ${draft.durationMin} minutes (~${draft.durationMin * 15} items).`}
-          </p>
+          <p className="-mt-2 mb-4 text-xs text-muted-foreground">{JOB_META[draft.job].hint}</p>
+
+          {/* duration only applies to discovery — a refresh is one bounded pass */}
+          {draft.job === "discovery" && (
+            <>
+              <Label>Scrape intensity</Label>
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {[0, 15, 30, 45, 60].map((m) => (
+                  <button key={m} onClick={() => setDraft({ ...draft, durationMin: m })}
+                    className={`rounded-lg px-3 py-1 text-xs font-medium ${draft.durationMin === m ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground hover:text-foreground"}`}>{m === 0 ? "Single pass" : `${m}m`}</button>
+                ))}
+              </div>
+              <input type="range" min={0} max={120} step={5} value={draft.durationMin}
+                onChange={(e) => setDraft({ ...draft, durationMin: Number(e.target.value) })} className="w-full" />
+              <p className="mt-1 text-xs text-muted-foreground">
+                {draft.durationMin === 0
+                  ? "One discovery pass across all sources (fast, light)."
+                  : `Scrape hard for ${draft.durationMin} minutes (~${draft.durationMin * 15} items).`}
+              </p>
+            </>
+          )}
 
           <div className="mt-5 rounded-lg bg-ink-2 p-4">
             <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-primary"><Zap className="size-3" /> Next run preview</div>

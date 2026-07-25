@@ -11,9 +11,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const KINDS: ScheduleKind[] = ["interval", "daily", "weekly", "cron"];
+const JOBS = ["discovery", "refresh"] as const;
 const clampDuration = (v: unknown) => Math.max(0, Math.min(180, Math.round(Number(v) || 0)));
+/** Unknown/absent job falls back to discovery — the pre-existing behaviour. */
+const asJob = (v: unknown) => (JOBS.includes(v as (typeof JOBS)[number]) ? (v as string) : "discovery");
 
-const SELECT = `SELECT id, name, enabled, kind, config,
+const SELECT = `SELECT id, name, enabled, kind, config, job,
        duration_min AS "durationMin",
        last_run_at  AS "lastRunAt",
        next_run_at  AS "nextRunAt"
@@ -40,9 +43,9 @@ export async function POST(req: Request) {
   const next = computeNextRun(kind, config, new Date());
   try {
     const { rows } = await pool.query(
-      `INSERT INTO scrape_schedules (name, kind, config, duration_min, next_run_at)
-       VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-      [name, kind, JSON.stringify(config), durationMin, next]
+      `INSERT INTO scrape_schedules (name, kind, config, duration_min, next_run_at, job)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [name, kind, JSON.stringify(config), durationMin, next, asJob(b.job)]
     );
     return NextResponse.json({ id: rows[0].id }, { status: 201 });
   } catch (e) {
@@ -79,6 +82,9 @@ export async function PATCH(req: Request) {
     if (b.kind !== undefined) set("kind", kind);
     if (b.config !== undefined) set("config", JSON.stringify(config));
     if (b.durationMin !== undefined) set("duration_min", clampDuration(b.durationMin));
+    // Only touched when explicitly supplied — omitting it must NOT reset an
+    // existing 'refresh' schedule back to the 'discovery' default.
+    if (b.job !== undefined) set("job", asJob(b.job));
     if (b.enabled !== undefined) set("enabled", !!enabled);
     set("next_run_at", next);
     vals.push(id);

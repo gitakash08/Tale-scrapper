@@ -19,7 +19,11 @@ export type JobState = {
   error: string | null;
   trigger: string; // "manual" | "schedule:<name>" — who started this run
   lastExit: string | null; // how the last run ended: "ok" | "stopped by user" | "exit code N" | "signal SIGX"
+  job: JobKind; // what this run is doing
 };
+
+/** discovery = find new titles; refresh = re-read ongoing titles only. */
+export type JobKind = "discovery" | "refresh";
 
 type Store = { state: JobState; child: ChildProcess | null; stopping: boolean };
 
@@ -30,6 +34,7 @@ const store: Store =
     state: {
       running: false, minutes: 0, startedAt: null, finishedAt: null,
       pass: 0, added: 0, baseline: null, log: [], error: null, trigger: "manual", lastExit: null,
+      job: "discovery",
     },
     child: null,
     stopping: false,
@@ -50,6 +55,8 @@ function push(line: string) {
     if ((m = t.match(/baseline (\d+)/))) s.baseline = +m[1];
     if ((m = t.match(/pass (\d+)/))) s.pass = +m[1];
     if ((m = t.match(/cumulative added(?: this burst)?:\s*(\d+)/))) s.added = +m[1];
+    // refresh runs report "refreshed N/M ongoing titles" — surface N as progress
+    if ((m = t.match(/refreshed (\d+)\/\d+ ongoing titles/))) s.added = +m[1];
     if (/another scraper already holds the lock/i.test(t))
       s.error = "Another scraper is already running (worker/daemon). Stop it first.";
   }
@@ -61,22 +68,35 @@ export function getState(): JobState {
 
 export function startJob(
   minutes: number,
-  opts: { trigger?: string; ifChanged?: boolean } = {}
+  opts: { trigger?: string; ifChanged?: boolean; job?: JobKind } = {}
 ): { ok: boolean; error?: string } {
   const s = store.state;
   if (s.running) return { ok: false, error: "A scrape is already running." };
+  const job: JobKind = opts.job === "refresh" ? "refresh" : "discovery";
   const single = !Number.isFinite(minutes) || minutes <= 0; // 0 = one discovery pass
   const trigger = opts.trigger ?? "manual";
   store.stopping = false;
   Object.assign(s, {
-    running: true, minutes: single ? 0 : minutes, startedAt: Date.now(), finishedAt: null,
-    pass: 0, added: 0, baseline: null, error: null, trigger, lastExit: null,
-    log: [single ? "starting worker — single pass…" : `starting worker for ${minutes} minutes…`],
+    running: true,
+    // a refresh is a single bounded pass — duration doesn't apply
+    minutes: job === "refresh" || single ? 0 : minutes,
+    startedAt: Date.now(), finishedAt: null,
+    pass: 0, added: 0, baseline: null, error: null, trigger, lastExit: null, job,
+    log: [
+      job === "refresh"
+        ? "starting worker — refreshing ongoing titles…"
+        : single ? "starting worker — single pass…" : `starting worker for ${minutes} minutes…`,
+    ],
   });
-  // A single pass runs `run` (one discovery sweep); a timed burst runs `--duration Nm`.
-  // Scheduled runs add `--if-changed` so a source with no new data is skipped.
-  const args = single ? [WORKER, "run"] : [WORKER, "run", "--duration", `${minutes}m`];
-  if (opts.ifChanged) args.push("--if-changed");
+  // refresh = `worker.js refresh`; otherwise a discovery pass or timed burst.
+  // Scheduled discovery adds `--if-changed` so a source with no new data is skipped.
+  const args =
+    job === "refresh"
+      ? [WORKER, "refresh"]
+      : single
+        ? [WORKER, "run"]
+        : [WORKER, "run", "--duration", `${minutes}m`];
+  if (opts.ifChanged && job !== "refresh") args.push("--if-changed");
   const child = spawn(process.execPath, args, {
     cwd: REPO, // so the worker loads ../.env and resolves ../schema.sql
     env: process.env,

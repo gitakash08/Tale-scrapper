@@ -11,7 +11,7 @@ export async function POST(req: Request) {
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
   try {
     const { rows } = await pool.query(
-      `SELECT id, name, kind, config, duration_min, last_run_at
+      `SELECT id, name, kind, config, duration_min, last_run_at, job
          FROM scrape_schedules WHERE id = $1`,
       [id]
     );

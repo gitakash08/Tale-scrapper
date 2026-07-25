@@ -22,6 +22,8 @@ export type Schedule = {
   durationMin: number;
   lastRunAt: string | null;
   nextRunAt: string | null;
+  /** what the schedule runs: "discovery" (default) or "refresh" */
+  job?: string;
 };
 
 export const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

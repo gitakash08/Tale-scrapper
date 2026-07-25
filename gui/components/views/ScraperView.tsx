@@ -8,6 +8,7 @@ import PageHeader from "@/components/PageHeader";
 type Status = {
   running: boolean; minutes: number; pass: number; added: number; baseline: number | null;
   log: string[]; error: string | null; elapsedMs: number; remainingMs: number; progress: number;
+  job?: "discovery" | "refresh";
 };
 type Source = { id: number; name: string; enabled: boolean };
 const fmt = (ms: number) => {
@@ -37,7 +38,14 @@ export default function ScraperView({ onChange, newCount = 0 }: { onChange?: () 
   useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [status?.log]);
 
   const running = status?.running ?? false;
+  const isRefresh = status?.job === "refresh";
   const start = async () => { setBusy(true); await fetch("/api/scrape/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ minutes }) }); await poll(); setBusy(false); };
+  // On-demand refresh: re-reads ongoing titles only (episodes/status/rating).
+  const refreshNow = async () => {
+    setBusy(true);
+    await fetch("/api/scrape/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job: "refresh" }) });
+    await poll(); setBusy(false);
+  };
   const stop = async () => { setBusy(true); await fetch("/api/scrape/stop", { method: "POST" }); await poll(); setBusy(false); };
 
   return (
@@ -46,7 +54,13 @@ export default function ScraperView({ onChange, newCount = 0 }: { onChange?: () 
         {running ? (
           <Button variant="destructive" size="sm" onClick={stop} disabled={busy}>{busy ? <Loader2 className="spin" /> : <Square />} Stop</Button>
         ) : (
-          <Button size="sm" onClick={start} disabled={busy}>{busy ? <Loader2 className="spin" /> : <Play />} Start scraping</Button>
+          <>
+            <Button variant="secondary" size="sm" onClick={refreshNow} disabled={busy}
+              title="Re-read ongoing titles — episodes, status and rating. Adds nothing.">
+              {busy ? <Loader2 className="spin" /> : <RefreshCw />} Refresh ongoing
+            </Button>
+            <Button size="sm" onClick={start} disabled={busy}>{busy ? <Loader2 className="spin" /> : <Play />} Start scraping</Button>
+          </>
         )}
       </PageHeader>
 
@@ -124,10 +138,16 @@ export default function ScraperView({ onChange, newCount = 0 }: { onChange?: () 
             <div>
               <div className="flex items-center gap-2">
                 <span className={`size-2 rounded-full ${running ? "bg-emerald-400 pulse-dot" : "bg-muted-foreground"}`} />
-                <span className="text-sm font-medium">{running ? "Scraping…" : status?.error ? "Error" : "Idle"}</span>
+                <span className="text-sm font-medium">
+                  {running ? (isRefresh ? "Refreshing ongoing titles…" : "Scraping…") : status?.error ? "Error" : "Idle"}
+                </span>
               </div>
               <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-                {running ? `Pass ${status?.pass ?? 0} · ${fmt(status?.remainingMs ?? 0)} remaining` : status?.error ?? "Set a duration and press Start."}
+                {running
+                  ? isRefresh
+                    ? "Re-reading episodes, status and rating — no new titles added."
+                    : `Pass ${status?.pass ?? 0} · ${fmt(status?.remainingMs ?? 0)} remaining`
+                  : status?.error ?? "Set a duration and press Start."}
               </p>
             </div>
           </div>

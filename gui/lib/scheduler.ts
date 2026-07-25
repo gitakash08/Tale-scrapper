@@ -48,12 +48,14 @@ export async function fireSchedule(
     config: ScheduleConfig;
     duration_min: number;
     last_run_at: string | null;
+    job?: string;
   },
   opts: { force?: boolean } = {}
 ): Promise<{ ok: boolean; error?: string }> {
   const res = startJob(row.duration_min, {
     trigger: `schedule:${row.name}`,
     ifChanged: !opts.force, // tick = change-aware; "run now" = force
+    job: row.job === "refresh" ? "refresh" : "discovery",
   });
   const now = new Date();
   // Anchor the next interval run on this fire; daily/weekly/cron ignore lastRun.
@@ -70,7 +72,7 @@ async function tick(): Promise<void> {
     if (!(await masterEnabled())) return;
     if (getState().running) return; // single writer — let the current run finish
     const { rows } = await pool.query(
-      `SELECT id, name, kind, config, duration_min, last_run_at
+      `SELECT id, name, kind, config, duration_min, last_run_at, job
          FROM scrape_schedules
         WHERE enabled AND next_run_at IS NOT NULL AND next_run_at <= now()
         ORDER BY next_run_at ASC
