@@ -80,6 +80,28 @@ Both worker and GUI point at the SAME Postgres as the Romantic Tales app:
   (capped by `SCRAPE_SOURCEREF_PER_RUN`, default 10; unmatched rows stay NULL
   rather than guess). Verified: 102/104 ongoing MDL rows resolved, real catches
   like `Knowing Bros 547→600ep`.
+- **On-air episode tracking**: DONE (2026-07-25). Fills the four columns the
+  romantic-tales app already reads: `episodes_aired`, `next_episode_at`,
+  `last_episode_at`, `status_checked_at` — the site renders "5 of 8 episodes" /
+  "Next episode: Jul 28". Folded into `refreshOngoing` (one fetch, one UPDATE):
+  TVMaze `/shows/:id/episodes` (airdate + **airstamp**), MDL via Kuryana
+  `/id/{source_ref}/episodes` — **keyed on `source_ref`, NOT `dramas.slug`**
+  (slug is our slugified title). Everything is **UTC-anchored** (bare date →
+  UTC midnight, "today" = UTC day) because the site renders in UTC; local
+  midnight would show the wrong day. Queue is `status_checked_at ASC NULLS
+  FIRST` (index `dramas_status_checked_idx`), capped by
+  `SCRAPE_REFRESH_PER_RUN`. Two guards for open-ended shows: `episodes` only
+  ever **grows** (max of stored/aired/list-length — freezing printed
+  "601 of 600", overwriting printed "5 of 5"), and auto-completion needs NO
+  known future episode AND (source says ended OR last episode older than
+  `SCRAPE_STALE_DAYS`, default 21) — completing on date alone would finish a
+  weekly show mid-gap, and completed rows leave the scan permanently. Every
+  auto-completion is logged (title, last episode, days stale, branch).
+  Unfetchable rows still get `status_checked_at` stamped or they jam the queue.
+  `node src/worker.js refresh --dry-run` prints the diff and writes nothing.
+  First run: 80 rows updated, 33 stale "airing" titles auto-completed (least
+  stale 113d), zero episode shrinks. Coverage gap: MDL publishes no per-episode
+  dates for specials/BTS extras, so those stay NULL by design.
 - **Settings** page is still a styled scaffold (persists to localStorage only).
 - **Custom sources**: DONE. The Sources page adds a source by URL into
   `scrape_sources`, and the worker now scrapes it via a **generic connector**
