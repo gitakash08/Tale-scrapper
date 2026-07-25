@@ -278,7 +278,7 @@ const REFRESH_PER_RUN = () => Number(process.env.SCRAPE_REFRESH_PER_RUN ?? 60);
 
 async function refreshOngoing(log, details, enabled) {
   const { rows } = await pool.query(
-    `SELECT slug, title, source, source_ref, tvmaze_id, imdb_id, content_type,
+    `SELECT slug, title, source, source_ref, tvmaze_id, imdb_id, content_type, country,
             status, rating::float AS rating, episodes, rating_locked
        FROM dramas
       WHERE status IN ('airing', 'upcoming')
@@ -329,7 +329,7 @@ async function refreshOngoing(log, details, enabled) {
       if (rating !== row.rating) changes.rating = [row.rating, rating];
       details.refreshed.push({
         slug: row.slug, title: row.title, source: row.source,
-        contentType: row.content_type, changes,
+        contentType: row.content_type, country: row.country, changes,
       });
       const bits = Object.entries(changes).map(([k, [a, b]]) =>
         k === "episodes" ? `${a}→${b}ep` : k === "rating" ? `${a}→${b}★` : `${a}→${b}`

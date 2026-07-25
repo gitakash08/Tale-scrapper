@@ -67,17 +67,23 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const kind = url.searchParams.get("kind"); // added | updated | null(all)
   const q = (url.searchParams.get("q") ?? "").toLowerCase().trim();
-  const limit = Math.min(Number(url.searchParams.get("limit")) || 300, 1000);
+  const limit = Math.min(Number(url.searchParams.get("limit")) || 300, 5000);
   const runId = url.searchParams.get("runId"); // drill-down for one run
+  // Date window is applied in SQL so a calendar range can reach runs far older
+  // than the default page of recent runs.
+  const from = url.searchParams.get("from"); // inclusive YYYY-MM-DD (local)
+  const to = url.searchParams.get("to");     // inclusive YYYY-MM-DD (local)
 
   try {
     const { rows } = await pool.query(
       `SELECT id, started_at AS "startedAt", finished_at AS "finishedAt", details
          FROM scrape_runs
         WHERE ($1::bigint IS NULL OR id = $1::bigint)
+          AND ($2::date IS NULL OR started_at >= $2::date)
+          AND ($3::date IS NULL OR started_at < ($3::date + INTERVAL '1 day'))
         ORDER BY started_at DESC
-        LIMIT 200`,
-      [runId]
+        LIMIT $4`,
+      [runId, from || null, to || null, runId || from || to ? 2000 : 200]
     );
 
     const events: Event[] = [];
@@ -128,12 +134,17 @@ export async function GET(req: Request) {
       .filter((e) => !q || e.title.toLowerCase().includes(q) || (e.source ?? "").toLowerCase().includes(q))
       .slice(0, limit);
 
+    // facet values present in this window, so the UI only offers real options
+    const sources = [...new Set(events.map((e) => e.source).filter(Boolean))].sort() as string[];
+    const types = [...new Set(events.map((e) => e.contentType).filter(Boolean))].sort() as string[];
+
     return NextResponse.json({
       events: filtered,
       counts: {
         added: events.filter((e) => e.kind === "added").length,
         updated: events.filter((e) => e.kind === "updated").length,
       },
+      facets: { sources, types },
     });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 503 });
