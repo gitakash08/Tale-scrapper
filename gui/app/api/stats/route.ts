@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const [totals, bySource, runs] = await Promise.all([
+    const [totals, bySource, runs, lifetime] = await Promise.all([
       pool.query(`
         SELECT
           count(*)::int AS total,
@@ -22,9 +22,15 @@ export async function GET() {
       pool.query(`
         SELECT id, started_at AS "startedAt", added, refreshed, found, ok
         FROM scrape_runs ORDER BY started_at DESC LIMIT 12`),
+      // lifetime intake vs upkeep — drives the Added / Updated tiles
+      pool.query(`
+        SELECT coalesce(sum(added), 0)::int     AS "addedTotal",
+               coalesce(sum(refreshed), 0)::int AS "updatedTotal"
+        FROM scrape_runs WHERE ok`),
     ]);
     return NextResponse.json({
       ...totals.rows[0],
+      ...lifetime.rows[0],
       bySource: bySource.rows,
       runs: runs.rows.reverse(),
     });

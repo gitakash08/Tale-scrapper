@@ -10,6 +10,7 @@ import SourcesView from "@/components/views/SourcesView";
 import SettingsView from "@/components/views/SettingsView";
 import LogsView from "@/components/views/LogsView";
 import ManualView from "@/components/views/ManualView";
+import ActivityView from "@/components/views/ActivityView";
 
 export default function Home() {
   const [view, setView] = useState<View>("dashboard");
@@ -54,6 +55,7 @@ export default function Home() {
           {view === "dashboard" && <DashboardView key={refreshKey} onNavigate={setView} />}
           {view === "scraper" && <ScraperView onChange={refresh} newCount={hasNew ? newCount : 0} />}
           {view === "queue" && <QueueView refreshKey={refreshKey} onChange={refresh} />}
+          {view === "activity" && <ActivityView />}
           {view === "schedules" && <SchedulesView />}
           {view === "sources" && <SourcesView />}
           {view === "settings" && <SettingsView />}

@@ -3,17 +3,19 @@
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Gauge, Inbox, CalendarClock, Database, Settings, ScrollText, BookOpen,
-  Clapperboard, ChevronsLeft, ChevronsRight,
+  Clapperboard, ChevronsLeft, ChevronsRight, Activity,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/theme";
 
 export type View =
-  | "dashboard" | "scraper" | "queue" | "schedules" | "sources" | "settings" | "logs" | "manual";
+  | "dashboard" | "scraper" | "queue" | "activity" | "schedules" | "sources"
+  | "settings" | "logs" | "manual";
 
 const NAV: { id: View; label: string; icon: React.ReactNode }[] = [
   { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard className="size-[18px]" /> },
   { id: "scraper", label: "Scraper", icon: <Gauge className="size-[18px]" /> },
   { id: "queue", label: "Approval Queue", icon: <Inbox className="size-[18px]" /> },
+  { id: "activity", label: "Activity", icon: <Activity className="size-[18px]" /> },
   { id: "schedules", label: "Schedules", icon: <CalendarClock className="size-[18px]" /> },
   { id: "sources", label: "Sources", icon: <Database className="size-[18px]" /> },
   { id: "settings", label: "Settings", icon: <Settings className="size-[18px]" /> },

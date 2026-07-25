@@ -321,11 +321,19 @@ async function refreshOngoing(log, details, enabled) {
         [status, episodes, rating, row.slug]
       );
       refreshed++;
-      const bits = [];
-      if (status !== row.status) bits.push(`${row.status}→${status}`);
-      if (episodes !== row.episodes) bits.push(`${row.episodes}→${episodes}ep`);
-      if (rating !== row.rating) bits.push(`${row.rating}→${rating}★`);
-      details.refreshed.push(`${row.title} [${row.source}]: ${bits.join(", ")}`);
+      // Structured change record — the GUI renders before→after diffs and can
+      // filter/search on these fields (legacy runs hold plain strings).
+      const changes = {};
+      if (status !== row.status) changes.status = [row.status, status];
+      if (episodes !== row.episodes) changes.episodes = [row.episodes, episodes];
+      if (rating !== row.rating) changes.rating = [row.rating, rating];
+      details.refreshed.push({
+        slug: row.slug, title: row.title, source: row.source,
+        contentType: row.content_type, changes,
+      });
+      const bits = Object.entries(changes).map(([k, [a, b]]) =>
+        k === "episodes" ? `${a}→${b}ep` : k === "rating" ? `${a}→${b}★` : `${a}→${b}`
+      );
       log.info(`[refresh] ${row.title}: ${bits.join(", ")}`);
     } catch (err) {
       details.skipped.push(`${row.title}: refresh failed (${err.message})`);
@@ -488,11 +496,13 @@ export async function runPass(log, opts = {}) {
           if (d.imdbId) imdbIds.add(d.imdbId);
           added++;
           addedFromSource++;
-          details.added.push(
-            `${d.title} (${d.originalTitle}) [${d.country}/${d.contentType ?? "drama"}] via ${d.src}` +
-              `${d.status === "upcoming" ? " — Coming Soon" : ""}` +
-              `${d.rating == null ? " — rating defaulted" : ""}`
-          );
+          details.added.push({
+            slug, title: d.title, originalTitle: d.originalTitle,
+            source: d.src, country: d.country, contentType: d.contentType ?? "drama",
+            status: d.status, year: d.year,
+            rating: d.rating ?? null, ratingDefaulted: d.rating == null,
+            episodes: d.episodes,
+          });
           log.info(`[scraper] + ${d.title} via ${d.src} — awaiting approval`);
         } catch (err) {
           nextId--;

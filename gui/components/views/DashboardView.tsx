@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Layers, Clock3, CheckCircle2, Film, Tv, Clapperboard, ArrowRight } from "lucide-react";
+import { Layers, Clock3, CheckCircle2, Film, Tv, Clapperboard, ArrowRight, RefreshCw } from "lucide-react";
 import type { View } from "@/components/Sidebar";
 import PageHeader from "@/components/PageHeader";
 
 type Stats = {
   total: number; approved: number; pending: number; drama: number; tv: number; movie: number;
-  kr: number; cn: number; bySource: { source: string; n: number }[]; runs: { id: number; added: number }[];
+  kr: number; cn: number; addedTotal: number; updatedTotal: number;
+  bySource: { source: string; n: number }[];
+  runs: { id: number; added: number; refreshed: number; startedAt: string }[];
 };
 
 function useCountUp(target: number, ms = 700) {
@@ -29,6 +31,7 @@ export default function DashboardView({ onNavigate }: { onNavigate: (v: View) =>
   const total = useCountUp(s?.total ?? 0);
   const pending = useCountUp(s?.pending ?? 0);
   const approved = useCountUp(s?.approved ?? 0);
+  const updated = useCountUp(s?.updatedTotal ?? 0);
 
   const seg = [
     { label: "Dramas", v: s?.drama ?? 0, cls: "bg-rose-light" },
@@ -36,17 +39,22 @@ export default function DashboardView({ onNavigate }: { onNavigate: (v: View) =>
     { label: "Movies", v: s?.movie ?? 0, cls: "bg-emerald-400" },
   ];
   const sum = seg.reduce((a, b) => a + b.v, 0) || 1;
-  const maxRun = Math.max(1, ...(s?.runs ?? []).map((r) => r.added));
+  // stacked scale: tallest run by TOTAL activity (added + updated)
+  const maxRun = Math.max(1, ...(s?.runs ?? []).map((r) => r.added + (r.refreshed ?? 0)));
 
   return (
     <div>
       <PageHeader title="Dashboard" subtitle="Your catalog at a glance." />
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat icon={<Layers className="size-5" />} label="Total in catalog" value={total} />
         <Stat icon={<CheckCircle2 className="size-5 text-emerald-400" />} label="Approved & live" value={approved} />
         <button onClick={() => onNavigate("queue")} className="text-left">
           <Stat icon={<Clock3 className="size-5 text-primary" />} label="Pending approval" value={pending} accent cta />
+        </button>
+        <button onClick={() => onNavigate("activity")} className="text-left">
+          <Stat icon={<RefreshCw className="size-5 text-sky-400" />} label="Titles updated" value={updated}
+            cta ctaLabel="Activity" />
         </button>
       </div>
 
@@ -82,29 +90,63 @@ export default function DashboardView({ onNavigate }: { onNavigate: (v: View) =>
       </div>
 
       <div className="mt-4 card p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Added per recent scrape run</p>
-          <button onClick={() => onNavigate("scraper")} className="flex items-center gap-1 text-xs text-primary hover:underline">Run a scrape <ArrowRight className="size-3" /></button>
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Activity per recent scrape run</p>
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="size-2 rounded-full bg-primary" /> Added
+            </span>
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="size-2 rounded-full bg-sky-400" /> Updated
+            </span>
+            <button onClick={() => onNavigate("scraper")} className="flex items-center gap-1 text-xs text-primary hover:underline">
+              Run a scrape <ArrowRight className="size-3" />
+            </button>
+          </div>
         </div>
-        <div className="flex h-28 items-end gap-1.5">
-          {(s?.runs ?? []).length === 0 && <p className="text-sm text-muted-foreground">No runs yet.</p>}
-          {(s?.runs ?? []).map((r) => (
-            <div key={r.id} className="group relative flex-1 rounded-t bg-gradient-to-t from-primary/40 to-primary hover:opacity-80"
-              style={{ height: `${(r.added / maxRun) * 100}%`, minHeight: r.added ? 4 : 0 }} title={`run #${r.id}: +${r.added}`} />
-          ))}
+        <div className="flex h-32 items-end gap-1.5 pt-4">
+          {(s?.runs ?? []).length === 0 && <p className="self-center text-sm text-muted-foreground">No runs yet.</p>}
+          {(s?.runs ?? []).map((r) => {
+            const up = r.refreshed ?? 0;
+            const totalAct = r.added + up;
+            return (
+              // one column per run: updated stacked on top of added
+              <button
+                key={r.id}
+                onClick={() => onNavigate("activity")}
+                title={`Run #${r.id} — ${r.added} added, ${up} updated`}
+                className="group relative flex flex-1 flex-col justify-end transition-opacity hover:opacity-75"
+                style={{ height: "100%" }}
+              >
+                {up > 0 && (
+                  <div className="w-full rounded-t bg-sky-400/90"
+                    style={{ height: `${(up / maxRun) * 100}%`, minHeight: 3 }} />
+                )}
+                {r.added > 0 && (
+                  <div className={`w-full bg-gradient-to-t from-primary/40 to-primary ${up > 0 ? "" : "rounded-t"}`}
+                    style={{ height: `${(r.added / maxRun) * 100}%`, minHeight: 3 }} />
+                )}
+                {totalAct === 0 && <div className="w-full rounded-t bg-border" style={{ height: 3 }} />}
+              </button>
+            );
+          })}
         </div>
+        <p className="mt-2 text-right text-[11px] text-muted-foreground">Click a bar to see what changed</p>
       </div>
     </div>
   );
 }
 
-function Stat({ icon, label, value, accent, cta }: { icon: React.ReactNode; label: string; value: number; accent?: boolean; cta?: boolean }) {
+function Stat({ icon, label, value, accent, cta, ctaLabel = "Review" }: {
+  icon: React.ReactNode; label: string; value: number;
+  accent?: boolean; cta?: boolean; ctaLabel?: string;
+}) {
   return (
-    <div className={`card p-5 ${cta ? "transition-colors hover:border-primary/50" : ""}`}>
+    <div className={`card h-full p-5 ${cta ? "transition-colors hover:border-primary/50" : ""}`}>
       <div className={`flex items-center gap-2 text-xs uppercase tracking-wide ${accent ? "text-primary" : "text-muted-foreground"}`}>{icon}{label}</div>
       <div className="mt-2 flex items-end justify-between">
         <span className="font-display text-4xl font-semibold tabular-nums">{value.toLocaleString()}</span>
-        {cta && <span className="mb-1 flex items-center gap-1 text-xs text-primary">Review <ArrowRight className="size-3" /></span>}
+        {cta && <span className="mb-1 flex items-center gap-1 text-xs text-primary">{ctaLabel} <ArrowRight className="size-3" /></span>}
       </div>
     </div>
   );

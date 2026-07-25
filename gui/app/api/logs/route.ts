@@ -13,7 +13,8 @@ export async function GET() {
        FROM scrape_runs ORDER BY started_at DESC LIMIT 60`
     );
     const logs: {
-      time: string; level: "INFO" | "WARN" | "ERROR"; source: string; message: string; detail: string;
+      time: string; level: "INFO" | "WARN" | "ERROR"; source: string; message: string;
+      detail: string; runId?: string; added?: number; updated?: number;
     }[] = [];
     for (const r of rows) {
       const runId = `Run #${r.id}`;
@@ -28,11 +29,12 @@ export async function GET() {
         logs.push({ time: when, level: interrupted ? "WARN" : "ERROR",
           source: interrupted ? "Worker" : "Scraper", message: r.error, detail: runId });
       } else {
-        logs.push({ time: when, level: "INFO", source: "Scraper",
-          message: `Run completed — ${r.added} added, ${r.found} found`, detail: runId });
-        if (r.added > 0)
-          logs.push({ time: when, level: "INFO", source: "Catalog",
-            message: `${r.added} items added to catalog`, detail: runId });
+        // headline row carries the counts so the UI can offer a drill-down
+        logs.push({
+          time: when, level: "INFO", source: "Scraper",
+          message: `Run completed — ${r.added} added, ${r.refreshed} updated`,
+          detail: runId, runId: String(r.id), added: r.added, updated: r.refreshed,
+        });
         if (r.skipped > 0)
           logs.push({ time: when, level: "WARN", source: "Validator",
             message: `${r.skipped} items skipped by the quality gate`, detail: runId });
