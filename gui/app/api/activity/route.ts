@@ -41,6 +41,10 @@ function parseLegacyRefreshed(s: string) {
     if (!d) continue;
     const [, a, b, unit] = d;
     const field = unit === "ep" ? "episodes" : unit === "★" ? "rating" : "status";
+    // The pre-2026-07 refresher wrote ALL three fields whenever any one moved,
+    // so legacy strings contain no-op pairs (e.g. "10→10"). Drop them, or the
+    // UI reports changes that never happened.
+    if (a.trim() === b.trim()) continue;
     changes[field] = [a.trim(), b.trim()];
   }
   return { title, source, changes };
@@ -123,7 +127,7 @@ export async function GET(req: Request) {
           events.push({
             ...base, kind: "updated", slug: raw.slug ?? null, title: raw.title ?? "(untitled)",
             source: raw.source ?? null, contentType: raw.contentType ?? null,
-            changes: raw.changes ?? {}, meta: {},
+            changes: raw.changes ?? {}, meta: { country: raw.country ?? null },
           });
         }
       }
