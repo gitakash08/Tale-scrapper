@@ -20,6 +20,9 @@ export type JobState = {
   trigger: string; // "manual" | "schedule:<name>" — who started this run
   lastExit: string | null; // how the last run ended: "ok" | "stopped by user" | "exit code N" | "signal SIGX"
   job: JobKind; // what this run is doing
+  // Count-based progress for jobs with no duration (refresh): rows done / total.
+  processed: number;
+  totalUnits: number;
 };
 
 /** discovery = find new titles; refresh = re-read ongoing titles only. */
@@ -34,7 +37,7 @@ const store: Store =
     state: {
       running: false, minutes: 0, startedAt: null, finishedAt: null,
       pass: 0, added: 0, baseline: null, log: [], error: null, trigger: "manual", lastExit: null,
-      job: "discovery",
+      job: "discovery", processed: 0, totalUnits: 0,
     },
     child: null,
     stopping: false,
@@ -49,9 +52,17 @@ function push(line: string) {
   for (const raw of line.split(/\r?\n/)) {
     const t = raw.trimEnd();
     if (!t) continue;
+    let m: RegExpMatchArray | null;
+
+    // "[progress] 12/60" drives the meter but would flood the log — parse and drop.
+    if ((m = t.match(/\[progress\]\s+(\d+)\/(\d+)/))) {
+      s.processed = +m[1];
+      s.totalUnits = +m[2];
+      continue;
+    }
+
     s.log.push(t);
     if (s.log.length > 400) s.log.shift();
-    let m: RegExpMatchArray | null;
     if ((m = t.match(/baseline (\d+)/))) s.baseline = +m[1];
     if ((m = t.match(/pass (\d+)/))) s.pass = +m[1];
     if ((m = t.match(/cumulative added(?: this burst)?:\s*(\d+)/))) s.added = +m[1];
@@ -82,6 +93,7 @@ export function startJob(
     minutes: job === "refresh" || single ? 0 : minutes,
     startedAt: Date.now(), finishedAt: null,
     pass: 0, added: 0, baseline: null, error: null, trigger, lastExit: null, job,
+    processed: 0, totalUnits: 0,
     log: [
       job === "refresh"
         ? "starting worker — refreshing ongoing titles…"

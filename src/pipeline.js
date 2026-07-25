@@ -345,8 +345,14 @@ async function refreshOngoing(log, details, enabled, opts = {}) {
     [REFRESH_PER_RUN()]
   );
 
-  let refreshed = 0, attempted = 0, skipped = 0;
+  let refreshed = 0, attempted = 0, skipped = 0, done = 0;
+  // A refresh has no duration, so the GUI can't derive a time-based percentage.
+  // Emit the unit of work up front and a tick per row; the job manager parses
+  // these into a real progress bar and hides them from the displayed log.
+  log.info(`[progress] 0/${rows.length}`);
+
   for (const row of rows) {
+   try {
     // honour the Sources page toggles (built-ins keyed by name, custom by id)
     const key = row.source?.startsWith("custom") ? "custom" : row.source;
     const sourceOff = key !== "custom" && enabled && enabled[key] === false;
@@ -475,6 +481,11 @@ async function refreshOngoing(log, details, enabled, opts = {}) {
     } catch (err) {
       details.skipped.push(`${row.title}: refresh failed (${err.message})`);
     }
+   } finally {
+    // runs on every path — skip, unchanged, updated or error — so the bar
+    // always advances even when a row does nothing
+    log.info(`[progress] ${++done}/${rows.length}`);
+   }
   }
   log.info(
     `[scraper] ${dryRun ? "DRY-RUN " : ""}refreshed ${refreshed}/${attempted} ongoing titles ` +
