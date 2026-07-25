@@ -904,6 +904,35 @@ export async function genericCandidates(log, source, existingSlugs, want) {
  * new source means adding one function here; the refresh pass itself is generic.
  */
 
+/* ── episode-date helpers (UTC-anchored) ──────────────────────────────
+ * The website renders these in UTC, so every instant/date we derive must be
+ * UTC-anchored or the page shows the wrong day. A bare date becomes UTC
+ * midnight; a full instant (TVMaze airstamp) is used as-is.
+ */
+const MONTHS = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
+/** "2026-08-13" -> UTC-midnight Date, or null. */
+function utcDateFromYmd(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec((s ?? "").trim());
+  if (!m) return null;
+  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+}
+
+/** "May 03, 2022" (Kuryana/MDL) -> UTC-midnight Date, or null. */
+function utcDateFromMdl(s) {
+  const m = /^([A-Za-z]{3})[a-z]*\s+(\d{1,2}),\s*(\d{4})/.exec((s ?? "").trim());
+  if (!m) return null;
+  const mon = MONTHS[m[1].toLowerCase()];
+  if (mon === undefined) return null;
+  return new Date(Date.UTC(+m[3], mon, +m[2]));
+}
+
+/** UTC YYYY-MM-DD string for a Date (what last_episode_at DATE stores). */
+export const utcYmd = (d) => d.toISOString().slice(0, 10);
+
 const statusFromDates = (startISO, endISO, fallback) => {
   const t = (d) => (d && !Number.isNaN(Date.parse(d)) ? Date.parse(d) : null);
   const s = t(startISO);
@@ -923,11 +952,31 @@ async function refreshMdl(row) {
   const votes = Number(
     (data.details?.score ?? "").match(/scored by ([\d,]+)/)?.[1]?.replace(/,/g, "") ?? 0
   );
+
+  // Per-episode air dates (Kuryana exposes "May 03, 2022" per episode). Movies
+  // have no episode list. A failure here must not sink the rest of the refresh.
+  let episodeDates = null;
+  if (!isMovie) {
+    try {
+      const eps = (await getJson(`https://kuryana.tbdh.app/id/${row.source_ref}/episodes`))
+        ?.data?.episodes ?? [];
+      const dates = eps
+        .map((e) => utcDateFromMdl(e?.air_date))
+        .filter(Boolean)
+        .sort((a, b) => a - b)
+        .map((d) => ({ date: d, instant: null })); // MDL gives no time-of-day
+      if (dates.length) episodeDates = dates;
+    } catch {
+      /* no episode list — caller leaves the on-air columns alone */
+    }
+  }
+
   return {
     episodes: isMovie ? 0 : Number(data.details?.episodes) || null,
     status: isMovie ? null : airedStatus(data.details?.aired, null),
     rating: typeof data.rating === "number" ? data.rating : null,
     votes,
+    episodeDates,
   };
 }
 
@@ -939,12 +988,26 @@ async function refreshTvmaze(row) {
   if (!show) return null;
   const eps = (await tv(`/shows/${id}/episodes`)) ?? [];
   const premieredFuture = show.premiered && Date.parse(show.premiered) > Date.now();
+
+  // airdate is a bare date (network-local); airstamp is a full instant. Prefer
+  // the instant for "next episode", fall back to UTC midnight of the date.
+  const episodeDates = eps
+    .map((e) => {
+      const date = utcDateFromYmd(e?.airdate);
+      if (!date) return null;
+      const t = e?.airstamp ? Date.parse(e.airstamp) : NaN;
+      return { date, instant: Number.isFinite(t) ? new Date(t) : null };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.date - b.date);
+
   return {
     episodes: eps.length || null,
     status: premieredFuture ? "upcoming" : TVMAZE_STATUS[show.status] ?? null,
     rating: show.rating?.average ?? null,
     // TVMaze doesn't publish a vote count; trust its average as-is.
     votes: null,
+    episodeDates: episodeDates.length ? episodeDates : null,
   };
 }
 

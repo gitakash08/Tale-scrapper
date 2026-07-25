@@ -179,9 +179,13 @@ try {
     case "check-updates":
       await checkUpdates(); // read-only; no advisory lock needed
       break;
-    case "refresh":
-      await withLock(() => refreshPass(log));
+    case "refresh": {
+      const dryRun = rest.includes("--dry-run");
+      // A dry run only reads, so it needn't hold the single-writer lock.
+      if (dryRun) await refreshPass(log, { dryRun: true });
+      else await withLock(() => refreshPass(log));
       break;
+    }
     case "enrich-watch-links":
       await withLock(() => enrichVikiWatchLinks(log));
       break;
@@ -193,6 +197,7 @@ try {
   node src/worker.js run                      one single pass
   node src/worker.js run --if-changed         run only if a source has new data (add to run/--duration)
   node src/worker.js refresh                  re-read ongoing titles only (episodes/status/rating; never inserts)
+  node src/worker.js refresh --dry-run        show what a refresh WOULD change; writes nothing
   node src/worker.js check-updates            probe sources for new data (updates the GUI's "what's new")
   node src/worker.js enrich-watch-links       fill real Viki watch links on existing rows`);
   }

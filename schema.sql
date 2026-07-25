@@ -50,6 +50,19 @@ ALTER TABLE dramas ADD COLUMN IF NOT EXISTS rating_locked BOOLEAN NOT NULL DEFAU
 CREATE INDEX IF NOT EXISTS dramas_refresh_idx
   ON dramas (status) WHERE status IN ('airing', 'upcoming');
 
+-- On-air episode tracking. Owned by the web app's migration (already applied);
+-- repeated here so this schema stays self-contained and re-runnable.
+--   next_episode_at / episodes_aired are PUBLIC (site shows "5 of 8 episodes",
+--   "Next episode: Jul 28"); last_episode_at / status_checked_at are the
+--   worker's own bookkeeping. All UTC-anchored — the site renders in UTC.
+ALTER TABLE dramas ADD COLUMN IF NOT EXISTS next_episode_at   TIMESTAMPTZ;
+ALTER TABLE dramas ADD COLUMN IF NOT EXISTS last_episode_at   DATE;
+ALTER TABLE dramas ADD COLUMN IF NOT EXISTS episodes_aired    INT;
+ALTER TABLE dramas ADD COLUMN IF NOT EXISTS status_checked_at TIMESTAMPTZ;
+-- the re-check priority queue orders by staleness, so index that directly
+CREATE INDEX IF NOT EXISTS dramas_status_checked_idx
+  ON dramas (status_checked_at NULLS FIRST) WHERE status IN ('airing', 'upcoming');
+
 CREATE TABLE IF NOT EXISTS posters (
   slug       TEXT PRIMARY KEY REFERENCES dramas (slug) ON DELETE CASCADE ON UPDATE CASCADE,
   mime       TEXT NOT NULL DEFAULT 'image/jpeg',

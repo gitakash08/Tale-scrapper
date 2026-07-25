@@ -30,7 +30,7 @@ import { pool } from "./db.js";
 import {
   tvmazeCandidates, traktCandidates, simklCandidates, mdlCandidates,
   vikiCandidates, genericCandidates, enrichVikiWatchLinks, enrich, fetchOriginalTitle,
-  loadSourceConfig, refresherFor, findMdlSlug,
+  loadSourceConfig, refresherFor, findMdlSlug, utcYmd,
 } from "./sources.js";
 import { evaluateChanges, storeSignals } from "./changes.js";
 
@@ -275,50 +275,180 @@ async function backfillSourceRefs(log, details, enabled) {
  */
 const MIN_VOTES = 10;
 const REFRESH_PER_RUN = () => Number(process.env.SCRAPE_REFRESH_PER_RUN ?? 60);
+/** Days with no new episode before a show may be auto-completed. */
+const STALE_DAYS = () => Number(process.env.SCRAPE_STALE_DAYS ?? 21);
 
-async function refreshOngoing(log, details, enabled) {
+/** UTC midnight for "today" — the site renders these fields in UTC. */
+function utcToday() {
+  const n = new Date();
+  return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
+}
+
+/**
+ * Derive the on-air facts from a per-episode date list (already UTC-anchored,
+ * ascending). Returns null when there's no usable list — callers then leave the
+ * on-air columns untouched rather than guess.
+ *
+ * Completion is deliberately conservative: a show is only auto-completed when
+ * NO future episode is known AND either the source itself says it ended or the
+ * last episode is older than SCRAPE_STALE_DAYS. Completing on date alone would
+ * wrongly finish a weekly show during its normal between-episode gap — and
+ * because completed rows drop out of this scan, that mistake is permanent.
+ */
+function deriveOnAir(list, sourceStatus, todayUtc) {
+  if (!list?.length) return null;
+  const first = list[0].date;
+  const last = list[list.length - 1].date;
+  const aired = list.filter((e) => e.date <= todayUtc);
+  const upcoming = list.find((e) => e.date > todayUtc);
+
+  const nextEpisodeAt = upcoming ? upcoming.instant ?? upcoming.date : null;
+  const staleCutoff = new Date(todayUtc.getTime() - STALE_DAYS() * 86400000);
+  const sourceEnded = sourceStatus === "completed";
+  const stale = last < staleCutoff;
+
+  let status;
+  let completedBy = null;
+  if (!nextEpisodeAt && (sourceEnded || stale)) {
+    status = "completed";
+    completedBy = sourceEnded ? "source-says-ended" : `stale>${STALE_DAYS()}d`;
+  } else if (first > todayUtc) {
+    status = "upcoming";
+  } else {
+    status = "airing";
+  }
+
+  return {
+    episodesAired: aired.length,
+    nextEpisodeAt,
+    lastEpisodeAt: utcYmd(last),
+    listLength: list.length,
+    status,
+    completedBy,
+    daysStale: Math.floor((todayUtc - last) / 86400000),
+  };
+}
+
+async function refreshOngoing(log, details, enabled, opts = {}) {
+  const dryRun = !!opts.dryRun;
+  const todayUtc = utcToday();
+  // Stalest first (never-checked first) so a capped run always makes progress
+  // instead of re-hitting the same head of the queue.
   const { rows } = await pool.query(
     `SELECT slug, title, source, source_ref, tvmaze_id, imdb_id, content_type, country,
-            status, rating::float AS rating, episodes, rating_locked
+            status, rating::float AS rating, episodes, rating_locked,
+            episodes_aired, next_episode_at, last_episode_at
        FROM dramas
       WHERE status IN ('airing', 'upcoming')
-      ORDER BY updated_at ASC NULLS FIRST
+      ORDER BY status_checked_at ASC NULLS FIRST
       LIMIT $1`,
     [REFRESH_PER_RUN()]
   );
 
-  let refreshed = 0, attempted = 0;
+  let refreshed = 0, attempted = 0, skipped = 0;
   for (const row of rows) {
     // honour the Sources page toggles (built-ins keyed by name, custom by id)
     const key = row.source?.startsWith("custom") ? "custom" : row.source;
-    if (key !== "custom" && enabled && enabled[key] === false) continue;
-
+    const sourceOff = key !== "custom" && enabled && enabled[key] === false;
     const refresh = refresherFor(row.source);
-    if (!refresh) continue;                 // unknown/manual source — leave alone
-    if (!row.source_ref && !row.tvmaze_id && !row.imdb_id) continue; // nothing to key on
+    const isMovie = row.content_type === "movie";
+    const noKey = !row.source_ref && !row.tvmaze_id && !row.imdb_id;
+
+    // Rows we can't act on still get stamped as "checked, nothing to do" —
+    // otherwise their NULL status_checked_at keeps them at the head of the
+    // priority queue forever and starves the rows that CAN progress.
+    if (sourceOff || !refresh || noKey || isMovie) {
+      if (!dryRun) {
+        await pool.query("UPDATE dramas SET status_checked_at = now() WHERE slug = $1", [row.slug]);
+      }
+      skipped++;
+      continue;
+    }
 
     attempted++;
     try {
       const fresh = await refresh(row);
-      if (!fresh) continue;
+      if (!fresh) {
+        if (!dryRun) {
+          await pool.query("UPDATE dramas SET status_checked_at = now() WHERE slug = $1", [row.slug]);
+        }
+        skipped++;
+        continue;
+      }
 
-      // Keep the stored value whenever the source didn't give us a better one.
-      const episodes = Number.isFinite(fresh.episodes) && fresh.episodes > 0
-        ? fresh.episodes
-        : row.episodes;
-      const status = fresh.status ?? row.status;
+      const onAir = deriveOnAir(fresh.episodeDates, fresh.status, todayUtc);
+
+      // episodes is the PLANNED total and only ever grows — freezing it would
+      // print "601 of 600" for open-ended shows, shrinking it would print
+      // "5 of 5" for a mid-season drama.
+      const candidates = [row.episodes ?? 0];
+      if (onAir) candidates.push(onAir.episodesAired, onAir.listLength);
+      else if (Number.isFinite(fresh.episodes) && fresh.episodes > 0) candidates.push(fresh.episodes);
+      const episodes = Math.max(...candidates);
+
+      // Episode dates are ground truth; the source's own status is the fallback.
+      const status = onAir ? onAir.status : fresh.status ?? row.status;
       const ratingOk =
         !row.rating_locked &&
         typeof fresh.rating === "number" && fresh.rating > 0 &&
         (fresh.votes == null || fresh.votes >= MIN_VOTES);
       const rating = ratingOk ? fresh.rating : row.rating;
 
-      if (status === row.status && episodes === row.episodes && rating === row.rating) continue;
+      const episodesAired = onAir ? onAir.episodesAired : row.episodes_aired;
+      const nextAt = onAir ? onAir.nextEpisodeAt : row.next_episode_at;
+      const lastAt = onAir ? onAir.lastEpisodeAt : row.last_episode_at;
+
+      const sameNext =
+        (nextAt == null && row.next_episode_at == null) ||
+        (nextAt != null && row.next_episode_at != null &&
+          new Date(nextAt).getTime() === new Date(row.next_episode_at).getTime());
+      const sameLast =
+        (lastAt == null && row.last_episode_at == null) ||
+        (lastAt != null && row.last_episode_at != null &&
+          utcYmd(new Date(row.last_episode_at)) === String(lastAt));
+      const unchanged =
+        status === row.status && episodes === row.episodes && rating === row.rating &&
+        episodesAired === row.episodes_aired && sameNext && sameLast;
+
+      // Auto-completions are logged explicitly: they remove a title from the
+      // On Air page / homepage hero and the row leaves this scan for good.
+      if (onAir?.completedBy && status === "completed" && row.status !== "completed") {
+        log.warn(
+          `[auto-complete] ${row.title} — last episode ${onAir.lastEpisodeAt} ` +
+          `(${onAir.daysStale}d stale), branch=${onAir.completedBy}`
+        );
+        details.skipped.push(
+          `AUTO-COMPLETED ${row.title}: last ${onAir.lastEpisodeAt}, ${onAir.daysStale}d stale, ${onAir.completedBy}`
+        );
+      }
+
+      if (unchanged) {
+        if (!dryRun) {
+          await pool.query("UPDATE dramas SET status_checked_at = now() WHERE slug = $1", [row.slug]);
+        }
+        continue;
+      }
+
+      if (dryRun) {
+        const d = [];
+        if (status !== row.status) d.push(`status ${row.status}→${status}`);
+        if (episodes !== row.episodes) d.push(`episodes ${row.episodes}→${episodes}`);
+        if (episodesAired !== row.episodes_aired) d.push(`aired ${row.episodes_aired ?? "∅"}→${episodesAired}`);
+        if (!sameNext) d.push(`next ${row.next_episode_at ? utcYmd(new Date(row.next_episode_at)) : "∅"}→${nextAt ? utcYmd(new Date(nextAt)) : "∅"}`);
+        if (!sameLast) d.push(`last ${row.last_episode_at ? utcYmd(new Date(row.last_episode_at)) : "∅"}→${lastAt ?? "∅"}`);
+        if (rating !== row.rating) d.push(`rating ${row.rating}→${rating}`);
+        log.info(`[dry-run] ${row.title} [${row.source}] :: ${d.join(", ")}`);
+        refreshed++;
+        continue;
+      }
 
       await pool.query(
-        `UPDATE dramas SET status = $1, episodes = $2, rating = $3, updated_at = now()
-          WHERE slug = $4`,
-        [status, episodes, rating, row.slug]
+        `UPDATE dramas
+            SET status = $1, episodes = $2, rating = $3,
+                episodes_aired = $4, next_episode_at = $5, last_episode_at = $6,
+                status_checked_at = now(), updated_at = now()
+          WHERE slug = $7`,
+        [status, episodes, rating, episodesAired, nextAt, lastAt, row.slug]
       );
       refreshed++;
       // Structured change record — the GUI renders before→after diffs and can
@@ -327,6 +457,13 @@ async function refreshOngoing(log, details, enabled) {
       if (status !== row.status) changes.status = [row.status, status];
       if (episodes !== row.episodes) changes.episodes = [row.episodes, episodes];
       if (rating !== row.rating) changes.rating = [row.rating, rating];
+      if (episodesAired !== row.episodes_aired) changes.episodesAired = [row.episodes_aired, episodesAired];
+      if (!sameNext) {
+        changes.nextEpisode = [
+          row.next_episode_at ? utcYmd(new Date(row.next_episode_at)) : null,
+          nextAt ? utcYmd(new Date(nextAt)) : null,
+        ];
+      }
       details.refreshed.push({
         slug: row.slug, title: row.title, source: row.source,
         contentType: row.content_type, country: row.country, changes,
@@ -339,7 +476,10 @@ async function refreshOngoing(log, details, enabled) {
       details.skipped.push(`${row.title}: refresh failed (${err.message})`);
     }
   }
-  log.info(`[scraper] refreshed ${refreshed}/${attempted} ongoing titles (of ${rows.length} scanned)`);
+  log.info(
+    `[scraper] ${dryRun ? "DRY-RUN " : ""}refreshed ${refreshed}/${attempted} ongoing titles ` +
+    `(${skipped} skipped, ${rows.length} scanned)`
+  );
   return refreshed;
 }
 
@@ -556,9 +696,14 @@ export async function runPass(log, opts = {}) {
  * Refresh-only pass: no discovery, just re-read ongoing titles (and top up
  * source_refs). Cheap enough to schedule often — it never inserts rows.
  */
-export async function refreshPass(log) {
+export async function refreshPass(log, opts = {}) {
   const { enabled } = await loadSourceConfig();
   const details = { added: [], refreshed: [], enriched: [], skipped: [] };
+  // A dry run must not write anything at all — not even a run row.
+  if (opts.dryRun) {
+    await refreshOngoing(log, details, enabled, { dryRun: true });
+    return 0;
+  }
   const { rows: [run] } = await pool.query(
     "INSERT INTO scrape_runs DEFAULT VALUES RETURNING id"
   );
