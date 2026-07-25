@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Rocket, Inbox, CalendarClock, Database, Activity, ScrollText, Wrench, Sparkles,
+  Rocket, Inbox, CalendarClock, Database, Activity, ScrollText, Wrench, Sparkles, RefreshCw,
 } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
 
@@ -52,7 +52,12 @@ export default function ManualView() {
           <p className="text-muted-foreground">A run is skipped only when <B>every</B> active source reports no change, so nothing is ever missed. Churny sources like Trakt/MDL usually report changes — disable them if you want idle-skipping to trigger more often.</p>
         </Section>
 
-        <Section icon={<ScrollText className="size-5" />} title="6. Read the logs">
+        <Section icon={<RefreshCw className="size-5" />} title="6. Ongoing titles stay up to date">
+          <p>Dramas still airing get re-checked automatically on each run: <B>episode count</B>, <B>status</B> (airing → completed), and <B>rating</B> are pulled fresh from whichever source the title came from — so a show going from 7 to 9 episodes updates itself.</p>
+          <p className="text-muted-foreground">A failed check never erases good data — the existing value is kept. If you hand-edit a rating and want it frozen, set that row&apos;s <B>rating_locked</B> flag and the refresher will leave it alone.</p>
+        </Section>
+
+        <Section icon={<ScrollText className="size-5" />} title="7. Read the logs">
           <p><B>Logs</B> shows recent run history: items added, titles skipped by the quality gate, skipped-for-no-change runs, and — if a run stopped early — the reason (<B>stopped by user</B>, an exit code, or <B>interrupted</B> after a restart/termination).</p>
         </Section>
 

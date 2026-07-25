@@ -39,6 +39,17 @@ ALTER TABLE dramas ADD COLUMN IF NOT EXISTS imdb_id      TEXT UNIQUE;
 ALTER TABLE dramas ADD COLUMN IF NOT EXISTS source       TEXT NOT NULL DEFAULT 'manual';
 ALTER TABLE dramas ADD COLUMN IF NOT EXISTS content_type TEXT NOT NULL DEFAULT 'drama';
 
+-- Refresh support (source-agnostic). source_ref is the ORIGIN source's own
+-- identifier for the row — MDL slug, TVMaze id, IMDB id, or a page URL for
+-- sitemap/custom sources — so any connector can re-fetch its own rows without
+-- guessing by title. rating_locked marks a human-curated rating that the
+-- refresher must never overwrite.
+ALTER TABLE dramas ADD COLUMN IF NOT EXISTS source_ref    TEXT;
+ALTER TABLE dramas ADD COLUMN IF NOT EXISTS rating_locked BOOLEAN NOT NULL DEFAULT FALSE;
+-- refresher scans ongoing titles; partial index keeps it cheap as the catalog grows
+CREATE INDEX IF NOT EXISTS dramas_refresh_idx
+  ON dramas (status) WHERE status IN ('airing', 'upcoming');
+
 CREATE TABLE IF NOT EXISTS posters (
   slug       TEXT PRIMARY KEY REFERENCES dramas (slug) ON DELETE CASCADE ON UPDATE CASCADE,
   mime       TEXT NOT NULL DEFAULT 'image/jpeg',

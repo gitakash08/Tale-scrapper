@@ -95,6 +95,7 @@ export async function tvmazeCandidates(log) {
       posterUrl: show.image?.medium ?? null,
       tvmazeId: show.id,
       imdbId: show.externals?.imdb ?? null,
+      sourceRef: String(show.id), // lets the refresher re-read this row later
     });
   };
 
@@ -158,6 +159,7 @@ export async function traktCandidates(log) {
         posterUrl: null, // Trakt ships no images; enrich() fills from TVMaze
         tvmazeId: null,
         imdbId: show.ids?.imdb ?? null,
+        sourceRef: show.ids?.imdb ?? null,
       });
     }
   }
@@ -195,6 +197,7 @@ export async function simklCandidates(log) {
         posterUrl: item.poster ? `https://simkl.in/posters/${item.poster}_m.webp` : null,
         tvmazeId: null,
         imdbId: item.ids?.imdb ?? null,
+        sourceRef: item.ids?.imdb ?? null,
       });
     }
   }
@@ -423,6 +426,7 @@ export async function mdlCandidates(log, existingSlugs, want) {
         episodes: contentType === "movie" ? 0 : Number(data.details?.episodes) || null,
         tvmazeId: null,
         imdbId: null,
+        sourceRef: slug, // MDL slug — the key the refresher re-reads via Kuryana
       });
     } catch {
       /* skip this slug; kuryana scrapes live and can hiccup */
@@ -526,6 +530,7 @@ async function vikiParse(entry) {
     tvmazeId: null,
     imdbId: null,
     watchUrl: entry.url, // the real prize: a working Viki deep link
+    sourceRef: entry.url, // page URL — refreshed by re-parsing its JSON-LD
   };
 }
 
@@ -843,6 +848,7 @@ async function parseGenericPage(url, source) {
     tvmazeId: null,
     imdbId: null,
     watchUrl: url, // the source page is itself a legit "watch/info" deep link
+    sourceRef: url, // same page is re-parsed on refresh
   };
 }
 
@@ -883,6 +889,134 @@ export async function genericCandidates(log, source, existingSlugs, want) {
   await cursorSet(cursorKey, String(i % urls.length));
   log.info(`[sources] custom(${source.name}): ${out.length} candidates (${fetches} page fetches)`);
   return out;
+}
+
+/* ── SOURCE-AGNOSTIC REFRESH ──────────────────────────────────────── */
+/**
+ * Each source knows how to re-read its OWN rows. A refresher takes the drama
+ * row (it carries `source_ref` plus any ids we already resolved) and returns
+ * only the fields that legitimately change over a title's life:
+ *
+ *   { episodes, status, rating, votes }   — any field may be omitted/null
+ *
+ * Returning null (or a null field) means "couldn't tell" — the caller then
+ * KEEPS the stored value, so a failed fetch never degrades good data. Adding a
+ * new source means adding one function here; the refresh pass itself is generic.
+ */
+
+const statusFromDates = (startISO, endISO, fallback) => {
+  const t = (d) => (d && !Number.isNaN(Date.parse(d)) ? Date.parse(d) : null);
+  const s = t(startISO);
+  const e = t(endISO);
+  if (s && s > Date.now()) return "upcoming";
+  if (e && e < Date.now()) return "completed";
+  if (s) return "airing";
+  return fallback ?? null;
+};
+
+/** MDL via Kuryana, keyed by the stored MDL slug. */
+async function refreshMdl(row) {
+  if (!row.source_ref) return null;
+  const { data } = (await getJson(`https://kuryana.tbdh.app/id/${row.source_ref}`)) ?? {};
+  if (!data) return null;
+  const isMovie = row.content_type === "movie";
+  const votes = Number(
+    (data.details?.score ?? "").match(/scored by ([\d,]+)/)?.[1]?.replace(/,/g, "") ?? 0
+  );
+  return {
+    episodes: isMovie ? 0 : Number(data.details?.episodes) || null,
+    status: isMovie ? null : airedStatus(data.details?.aired, null),
+    rating: typeof data.rating === "number" ? data.rating : null,
+    votes,
+  };
+}
+
+/** TVMaze, keyed by tvmaze id (stored in source_ref or the tvmaze_id column). */
+async function refreshTvmaze(row) {
+  const id = row.tvmaze_id ?? (/^\d+$/.test(row.source_ref ?? "") ? row.source_ref : null);
+  if (!id) return null;
+  const show = await tv(`/shows/${id}`);
+  if (!show) return null;
+  const eps = (await tv(`/shows/${id}/episodes`)) ?? [];
+  const premieredFuture = show.premiered && Date.parse(show.premiered) > Date.now();
+  return {
+    episodes: eps.length || null,
+    status: premieredFuture ? "upcoming" : TVMAZE_STATUS[show.status] ?? null,
+    rating: show.rating?.average ?? null,
+    // TVMaze doesn't publish a vote count; trust its average as-is.
+    votes: null,
+  };
+}
+
+/** Trakt, keyed by IMDB id (Trakt accepts it directly). */
+async function refreshTrakt(row) {
+  const key = process.env.TRAKT_CLIENT_ID;
+  const id = row.imdb_id ?? (/^tt\d+/.test(row.source_ref ?? "") ? row.source_ref : null);
+  if (!key || !id) return refreshTvmaze(row); // fall back to TVMaze when possible
+  const show = await getJson(`https://api.trakt.tv/shows/${id}?extended=full`, {
+    "Content-Type": "application/json",
+    "trakt-api-version": "2",
+    "trakt-api-key": key,
+  });
+  if (!show) return null;
+  return {
+    episodes: Number(show.aired_episodes) || null,
+    status: isFuture(show.first_aired) ? "upcoming" : TRAKT_STATUS[show.status] ?? null,
+    rating: typeof show.rating === "number" ? Math.round(show.rating * 10) / 10 : null,
+    votes: Number(show.votes) || 0,
+  };
+}
+
+/**
+ * Viki + any custom source: re-parse the stored page URL with the same
+ * schema.org/OpenGraph reader the generic connector uses. This is what makes
+ * user-added sources refreshable for free.
+ */
+async function refreshFromPage(row) {
+  const url = row.source_ref;
+  if (!url || !/^https?:\/\//.test(url)) return null;
+  const html = await getText(url);
+  const entities = jsonLdEntities(html);
+  const WANTED = ["tvseries", "movie", "creativework", "series", "tvseason"];
+  const ld = entities.find((e) => ldTypes(e).some((t) => WANTED.includes(t))) ?? null;
+  if (!ld) return null;
+  const start = ld.startDate || ld.datePublished || null;
+  return {
+    episodes: row.content_type === "movie" ? 0 : Number(ld.numberOfEpisodes) || null,
+    status: row.content_type === "movie" ? null : statusFromDates(start, ld.endDate, null),
+    rating: parseRating(ld), // already vote-gated (>= 10) inside parseRating
+    votes: null,
+  };
+}
+
+/** Registry: source name -> refresher. `custom:<id>` rows use the page reader. */
+export function refresherFor(source) {
+  if (!source) return null;
+  if (source.startsWith("custom")) return refreshFromPage;
+  return {
+    mdl: refreshMdl,
+    tvmaze: refreshTvmaze,
+    trakt: refreshTrakt,
+    simkl: refreshTvmaze, // Simkl has no per-title detail we use; TVMaze is the completer
+    viki: refreshFromPage,
+  }[source] ?? null;
+}
+
+/**
+ * Resolve an MDL slug for a legacy row that predates source_ref, via Kuryana's
+ * search endpoint. Matches on normalized title, preferring an exact year match.
+ * Returns the slug or null — never a guess we aren't confident about.
+ */
+export async function findMdlSlug(title, year) {
+  const norm = (s) => (s ?? "").toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "");
+  const res = await getJson(`https://kuryana.tbdh.app/search/q/${encodeURIComponent(title)}`);
+  const hits = res?.results?.dramas ?? [];
+  const want = norm(title);
+  const exact = hits.filter((h) => norm(h.title) === want);
+  const pick =
+    exact.find((h) => year && Number(h.year) === Number(year)) ??
+    (exact.length === 1 ? exact[0] : null);
+  return pick?.slug ?? null;
 }
 
 /* ── enrichment + QUALITY GATE (TVMaze as the completion source) ──── */

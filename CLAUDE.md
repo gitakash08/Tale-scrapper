@@ -63,6 +63,23 @@ Both worker and GUI point at the SAME Postgres as the Romantic Tales app:
   preview. `jobs.startJob(minutes, {trigger})` now also does a single pass when
   minutes = 0. NOTE: schedules only fire while the GUI (`npm run dev`/`start`)
   is running — times are in the server's LOCAL timezone.
+- **Ongoing-title refresh**: DONE and **source-agnostic**. `dramas.source_ref`
+  stores each row's ORIGIN identifier (MDL slug / TVMaze id / IMDB id / page URL)
+  so any connector can re-read its own rows; `refresherFor(source)` in
+  `src/sources.js` maps a source to its `refresh(row)` → `{episodes, status,
+  rating, votes}`. Viki **and every custom source** refresh for free by
+  re-parsing the stored page URL's JSON-LD. `refreshOngoing()` in
+  `src/pipeline.js` scans airing/upcoming rows least-recently-updated first,
+  capped by `SCRAPE_REFRESH_PER_RUN` (60). New CLI: **`node src/worker.js
+  refresh`** = refresh-only pass (never inserts). Safety rules: a null field
+  KEEPS the stored value (a failed fetch can't blank data), ratings need ≥10
+  votes when the source reports them, `dramas.rating_locked = TRUE` protects a
+  human-curated rating, disabled sources are skipped, and it's UPDATE-by-slug
+  only so it **cannot duplicate**. Legacy rows are backfilled by
+  `backfillSourceRefs()` — SQL for tvmaze/trakt/viki, Kuryana search for MDL
+  (capped by `SCRAPE_SOURCEREF_PER_RUN`, default 10; unmatched rows stay NULL
+  rather than guess). Verified: 102/104 ongoing MDL rows resolved, real catches
+  like `Knowing Bros 547→600ep`.
 - **Settings** page is still a styled scaffold (persists to localStorage only).
 - **Custom sources**: DONE. The Sources page adds a source by URL into
   `scrape_sources`, and the worker now scrapes it via a **generic connector**

@@ -30,7 +30,7 @@ import { pool } from "./db.js";
 import {
   tvmazeCandidates, traktCandidates, simklCandidates, mdlCandidates,
   vikiCandidates, genericCandidates, enrichVikiWatchLinks, enrich, fetchOriginalTitle,
-  loadSourceConfig,
+  loadSourceConfig, refresherFor, findMdlSlug,
 } from "./sources.js";
 import { evaluateChanges, storeSignals } from "./changes.js";
 
@@ -121,14 +121,15 @@ async function insertDrama(d, nextId) {
       `INSERT INTO dramas
          (id, slug, title, original_title, year, country, rating, episodes,
           air_days, status, moods, genres, synopsis, poster, watch,
-          approved, tvmaze_id, imdb_id, source, content_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,FALSE,$16,$17,$18,$19)`,
+          approved, tvmaze_id, imdb_id, source, content_type, source_ref)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,FALSE,$16,$17,$18,$19,$20)`,
       [
         String(nextId), slug, d.title, d.originalTitle, d.year, d.country,
         rating, d.episodes,
         d.airDays, d.status, mapMoods(d.genres, d.rating), mapGenres(d.genres),
         d.synopsis, `/posters/${slug}.jpg`, JSON.stringify(watch),
         d.tvmazeId, d.imdbId, d.src, d.contentType ?? "drama",
+        d.sourceRef ?? null,
       ]
     );
     await client.query(
@@ -187,51 +188,150 @@ async function backfillOriginalTitles(log, details) {
   return filled;
 }
 
-/* ── refresh airing dramas (status / episodes; rating only if scraped) ─ */
-const TVMAZE_STATUS = {
-  Running: "airing", Ended: "completed",
-  "To Be Determined": "airing", "In Development": "upcoming",
-};
+/* ── backfill source_ref on rows that predate the column ──────────── */
+/**
+ * Without a source_ref a row can't be refreshed, so fill it in for existing
+ * rows. Most sources are recoverable from data we already hold — that's pure
+ * SQL, no network. Only MDL needs a lookup, so it's paced and capped per run
+ * (SCRAPE_SOURCEREF_PER_RUN, default 10), ongoing titles first. A row we can't
+ * resolve confidently is simply left NULL and skipped by the refresher —
+ * never a guessed match.
+ */
+const SOURCEREF_PER_RUN = () => Number(process.env.SCRAPE_SOURCEREF_PER_RUN ?? 10);
 
-async function refreshAiring(log, details) {
-  const { rows } = await pool.query(
-    `SELECT slug, title, country, tvmaze_id, status, rating::float AS rating,
-            episodes, source
-     FROM dramas WHERE status IN ('airing', 'upcoming')`
-  );
-  let refreshed = 0;
-  for (const row of rows) {
-    if (!row.tvmaze_id) continue; // backfill pass resolves ids over time
-    try {
-      const show = await fetch(`https://api.tvmaze.com/shows/${row.tvmaze_id}`, {
-        signal: AbortSignal.timeout(15000),
-      }).then((r) => (r.ok ? r.json() : null));
-      if (!show) continue;
-      const premiered = show.premiered && new Date(show.premiered).getTime() > Date.now();
-      const status = premiered ? "upcoming" : TVMAZE_STATUS[show.status] ?? row.status;
-      // TVMaze ratings only ever overwrite TVMaze-sourced rows; curated,
-      // Trakt, and MDL ratings are more trustworthy and stay untouched.
-      const rating =
-        row.source === "tvmaze" ? show.rating?.average ?? row.rating : row.rating;
-      const eps = await fetch(`https://api.tvmaze.com/shows/${row.tvmaze_id}/episodes`, {
-        signal: AbortSignal.timeout(15000),
-      }).then((r) => (r.ok ? r.json() : []));
-      const episodes = eps.length || row.episodes;
-      if (status !== row.status || rating !== row.rating || episodes !== row.episodes) {
+async function backfillSourceRefs(log, details, enabled) {
+  // 1) free wins: identifiers already stored on the row
+  const sqlFills = [
+    ["tvmaze", `UPDATE dramas SET source_ref = tvmaze_id::text
+                 WHERE source_ref IS NULL AND tvmaze_id IS NOT NULL AND source = 'tvmaze'`],
+    ["trakt", `UPDATE dramas SET source_ref = imdb_id
+                WHERE source_ref IS NULL AND imdb_id IS NOT NULL AND source = 'trakt'`],
+    // Viki rows carry their real watch URL in the watch JSONB
+    ["viki", `UPDATE dramas d SET source_ref = sub.url
+               FROM (SELECT slug, (SELECT w->>'url' FROM jsonb_array_elements(watch) w
+                                    WHERE w->>'url' LIKE 'http%viki.com/%' LIMIT 1) AS url
+                       FROM dramas WHERE source = 'viki' AND source_ref IS NULL) sub
+              WHERE d.slug = sub.slug AND sub.url IS NOT NULL`],
+  ];
+  let filled = 0;
+  for (const [name, sql] of sqlFills) {
+    const { rowCount } = await pool.query(sql);
+    if (rowCount) log.info(`[source_ref] ${name}: filled ${rowCount} from existing ids`);
+    filled += rowCount ?? 0;
+  }
+
+  // 2) MDL: resolve the slug via search, ongoing titles first, small batch
+  if (enabled?.mdl !== false) {
+    const { rows } = await pool.query(
+      `SELECT slug, title, year FROM dramas
+        WHERE source = 'mdl' AND source_ref IS NULL
+        ORDER BY (status IN ('airing','upcoming')) DESC, updated_at ASC
+        LIMIT $1`,
+      [SOURCEREF_PER_RUN()]
+    );
+    let mdlResolved = 0;
+    for (const row of rows) {
+      try {
+        const ref = await findMdlSlug(row.title, row.year);
+        if (!ref) {
+          details.skipped.push(`${row.title}: no confident MDL match for refresh`);
+          continue;
+        }
         await pool.query(
-          "UPDATE dramas SET status=$1, rating=$2, episodes=$3, updated_at=now() WHERE slug=$4",
-          [status, rating, episodes, row.slug]
+          "UPDATE dramas SET source_ref = $1 WHERE slug = $2 AND source_ref IS NULL",
+          [ref, row.slug]
         );
-        refreshed++;
-        details.refreshed.push(
-          `${row.title}: ${row.status}→${status}, ${row.rating}→${rating}★, ${row.episodes}→${episodes}ep`
-        );
+        mdlResolved++;
+      } catch {
+        /* transient search failure — next run retries */
       }
+    }
+    filled += mdlResolved;
+    if (rows.length) log.info(`[source_ref] mdl: resolved ${mdlResolved} of ${rows.length} looked up`);
+  }
+  return filled;
+}
+
+/* ── refresh ongoing titles (source-agnostic) ─────────────────────── */
+/**
+ * Re-reads every ONGOING title (airing/upcoming) from whichever source
+ * originally supplied it, and updates only the fields that legitimately change:
+ * episodes, status, rating. Each source implements its own `refresh()`
+ * (see refresherFor in sources.js), so a new source — including a user-added
+ * custom URL — becomes refreshable without touching this function.
+ *
+ * Safety rules (an enterprise catalog must never lose good data):
+ *  - a null/missing field from the source KEEPS the stored value; a failed
+ *    fetch can never blank out episodes, status, or a rating,
+ *  - ratings need >= MIN_VOTES backing when the source reports a vote count,
+ *  - rows with rating_locked = TRUE never have their rating touched (that flag
+ *    marks a human-curated score),
+ *  - rows whose source is disabled on the Sources page are skipped,
+ *  - UPDATE by slug only — this pass can never INSERT, so it cannot duplicate.
+ *
+ * Fairness/cost: least-recently-updated rows go first, capped per run
+ * (SCRAPE_REFRESH_PER_RUN, default 60), so the pass is bounded and every row
+ * comes round over time without a cursor to maintain.
+ */
+const MIN_VOTES = 10;
+const REFRESH_PER_RUN = () => Number(process.env.SCRAPE_REFRESH_PER_RUN ?? 60);
+
+async function refreshOngoing(log, details, enabled) {
+  const { rows } = await pool.query(
+    `SELECT slug, title, source, source_ref, tvmaze_id, imdb_id, content_type,
+            status, rating::float AS rating, episodes, rating_locked
+       FROM dramas
+      WHERE status IN ('airing', 'upcoming')
+      ORDER BY updated_at ASC NULLS FIRST
+      LIMIT $1`,
+    [REFRESH_PER_RUN()]
+  );
+
+  let refreshed = 0, attempted = 0;
+  for (const row of rows) {
+    // honour the Sources page toggles (built-ins keyed by name, custom by id)
+    const key = row.source?.startsWith("custom") ? "custom" : row.source;
+    if (key !== "custom" && enabled && enabled[key] === false) continue;
+
+    const refresh = refresherFor(row.source);
+    if (!refresh) continue;                 // unknown/manual source — leave alone
+    if (!row.source_ref && !row.tvmaze_id && !row.imdb_id) continue; // nothing to key on
+
+    attempted++;
+    try {
+      const fresh = await refresh(row);
+      if (!fresh) continue;
+
+      // Keep the stored value whenever the source didn't give us a better one.
+      const episodes = Number.isFinite(fresh.episodes) && fresh.episodes > 0
+        ? fresh.episodes
+        : row.episodes;
+      const status = fresh.status ?? row.status;
+      const ratingOk =
+        !row.rating_locked &&
+        typeof fresh.rating === "number" && fresh.rating > 0 &&
+        (fresh.votes == null || fresh.votes >= MIN_VOTES);
+      const rating = ratingOk ? fresh.rating : row.rating;
+
+      if (status === row.status && episodes === row.episodes && rating === row.rating) continue;
+
+      await pool.query(
+        `UPDATE dramas SET status = $1, episodes = $2, rating = $3, updated_at = now()
+          WHERE slug = $4`,
+        [status, episodes, rating, row.slug]
+      );
+      refreshed++;
+      const bits = [];
+      if (status !== row.status) bits.push(`${row.status}→${status}`);
+      if (episodes !== row.episodes) bits.push(`${row.episodes}→${episodes}ep`);
+      if (rating !== row.rating) bits.push(`${row.rating}→${rating}★`);
+      details.refreshed.push(`${row.title} [${row.source}]: ${bits.join(", ")}`);
+      log.info(`[refresh] ${row.title}: ${bits.join(", ")}`);
     } catch (err) {
       details.skipped.push(`${row.title}: refresh failed (${err.message})`);
     }
   }
-  log.info(`[scraper] refreshed ${refreshed}/${rows.length} airing/upcoming dramas`);
+  log.info(`[scraper] refreshed ${refreshed}/${attempted} ongoing titles (of ${rows.length} scanned)`);
   return refreshed;
 }
 
@@ -414,7 +514,8 @@ export async function runPass(log, opts = {}) {
     // same rows every pass would waste the window. Default off = normal daily.
     if (process.env.SCRAPE_SKIP_MAINTENANCE !== "true") {
       await backfillOriginalTitles(log, details);
-      refreshed = await refreshAiring(log, details);
+      await backfillSourceRefs(log, details, on);
+      refreshed = await refreshOngoing(log, details, on);
       // Attach real Viki watch links to matching catalog rows.
       await enrichVikiWatchLinks(log).catch((e) =>
         details.skipped.push(`viki-links: ${e.message}`)
@@ -438,6 +539,35 @@ export async function runPass(log, opts = {}) {
     log.error(`[scraper] run #${run.id} failed: ${err.message}`);
   } finally {
     running = false;
+  }
+}
+
+/**
+ * Refresh-only pass: no discovery, just re-read ongoing titles (and top up
+ * source_refs). Cheap enough to schedule often — it never inserts rows.
+ */
+export async function refreshPass(log) {
+  const { enabled } = await loadSourceConfig();
+  const details = { added: [], refreshed: [], enriched: [], skipped: [] };
+  const { rows: [run] } = await pool.query(
+    "INSERT INTO scrape_runs DEFAULT VALUES RETURNING id"
+  );
+  try {
+    await backfillSourceRefs(log, details, enabled);
+    const refreshed = await refreshOngoing(log, details, enabled);
+    await pool.query(
+      `UPDATE scrape_runs SET finished_at=now(), ok=TRUE,
+         found=0, added=0, refreshed=$1, skipped=$2, details=$3 WHERE id=$4`,
+      [refreshed, details.skipped.length, JSON.stringify({ ...details, refreshOnly: true }), run.id]
+    );
+    log.info(`[scraper] refresh-only run #${run.id}: refreshed ${refreshed}`);
+    return refreshed;
+  } catch (err) {
+    await pool.query(
+      `UPDATE scrape_runs SET finished_at=now(), ok=FALSE, details=$1, error=$2 WHERE id=$3`,
+      [JSON.stringify(details), err.message, run.id]
+    );
+    throw err;
   }
 }
 
