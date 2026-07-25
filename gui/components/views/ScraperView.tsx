@@ -197,7 +197,9 @@ export default function ScraperView({ onChange, newCount = 0 }: { onChange?: () 
               <p className="mt-1 max-w-xs text-xs text-muted-foreground">
                 {running
                   ? isRefresh
-                    ? `${status?.processed ?? 0} of ${status?.totalUnits ?? 0} titles checked`
+                    ? (status?.totalUnits ?? 0) > 0
+                      ? `${status?.processed ?? 0} of ${status?.totalUnits} titles checked`
+                      : "Preparing — resolving sources…" /* before the scan list is built */
                     : `Pass ${status?.pass ?? 0} · ${fmt(status?.remainingMs ?? 0)} remaining`
                   : status?.error ?? "Set a duration and press Start."}
               </p>
