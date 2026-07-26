@@ -5,12 +5,20 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** Derive a log feed from scrape_runs (each run -> a few log lines). */
-export async function GET() {
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  // Optional inclusive local-date window supplied by the range picker.
+  const from = url.searchParams.get("from") || null;
+  const to = url.searchParams.get("to") || null;
   try {
     const { rows } = await pool.query(
       `SELECT id, started_at AS "startedAt", finished_at AS "finishedAt",
               ok, found, added, refreshed, skipped, error, details
-       FROM scrape_runs ORDER BY started_at DESC LIMIT 60`
+       FROM scrape_runs
+       WHERE ($1::date IS NULL OR started_at >= $1::date)
+         AND ($2::date IS NULL OR started_at < ($2::date + INTERVAL '1 day'))
+       ORDER BY started_at DESC LIMIT $3`,
+      [from, to, from || to ? 500 : 60]
     );
     const logs: {
       time: string; level: "INFO" | "WARN" | "ERROR"; source: string; message: string;

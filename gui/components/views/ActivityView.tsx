@@ -6,6 +6,7 @@ import {
   X, Download, TrendingUp, TrendingDown, CalendarDays, SlidersHorizontal,
 } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import { DateRangePicker, type Range } from "@/components/DateRangePicker";
 
 type Kind = "added" | "updated";
 type Event = {
@@ -23,32 +24,6 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
 };
 const FIELD_LABEL: Record<string, string> = { episodes: "Episodes", status: "Status", rating: "Rating" };
 
-/* ── date helpers (local time, YYYY-MM-DD) ───────────────────────── */
-const ymd = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-const shiftDays = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d; };
-
-type RangeId = "all" | "today" | "yesterday" | "7d" | "30d" | "custom";
-const RANGES: { id: RangeId; label: string }[] = [
-  { id: "today", label: "Today" },
-  { id: "yesterday", label: "Yesterday" },
-  { id: "7d", label: "Last 7 days" },
-  { id: "30d", label: "Last 30 days" },
-  { id: "all", label: "All time" },
-  { id: "custom", label: "Custom" },
-];
-/** Resolve a preset into the from/to the API expects. */
-function resolveRange(id: RangeId, from: string, to: string) {
-  switch (id) {
-    case "today": return { from: ymd(new Date()), to: ymd(new Date()) };
-    case "yesterday": return { from: ymd(shiftDays(-1)), to: ymd(shiftDays(-1)) };
-    case "7d": return { from: ymd(shiftDays(-6)), to: ymd(new Date()) };
-    case "30d": return { from: ymd(shiftDays(-29)), to: ymd(new Date()) };
-    case "custom": return { from, to };
-    default: return { from: "", to: "" };
-  }
-}
-
 function ago(iso: string) {
   const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
   if (s < 60) return "just now";
@@ -60,6 +35,9 @@ function ago(iso: string) {
   return d < 30 ? `${d}d ago` : new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
 }
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+/** local YYYY-MM-DD — used for the CSV filename */
+const ymd = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 export default function ActivityView() {
   const [events, setEvents] = useState<Event[]>([]);
@@ -70,16 +48,14 @@ export default function ActivityView() {
   // filters
   const [kind, setKind] = useState<Kind | "all">("all");
   const [q, setQ] = useState("");
-  const [range, setRange] = useState<RangeId>("all");
-  const [customFrom, setCustomFrom] = useState(ymd(shiftDays(-7)));
-  const [customTo, setCustomTo] = useState(ymd(new Date()));
+  const [dates, setDates] = useState<Range>({ from: "", to: "" }); // empty = all time
   const [source, setSource] = useState("all");
   const [type, setType] = useState("all");
   const [field, setField] = useState("all");      // status | episodes | rating
   const [dir, setDir] = useState("all");          // up | down (rating/episodes)
   const [page, setPage] = useState(1);
 
-  const { from, to } = resolveRange(range, customFrom, customTo);
+  const { from, to } = dates;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,7 +72,7 @@ export default function ActivityView() {
   }, [from, to]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { setPage(1); }, [kind, q, source, type, field, dir, range, customFrom, customTo]);
+  useEffect(() => { setPage(1); }, [kind, q, source, type, field, dir, dates]);
 
   const filtered = useMemo(() => {
     const needle = q.toLowerCase().trim();
@@ -137,7 +113,7 @@ export default function ActivityView() {
   }, [shown]);
 
   const activeChips = [
-    range !== "all" && { k: "range", label: range === "custom" ? `${customFrom} → ${customTo}` : RANGES.find((r) => r.id === range)!.label, clear: () => setRange("all") },
+    !!dates.from && { k: "range", label: `${dates.from} → ${dates.to}`, clear: () => setDates({ from: "", to: "" }) },
     kind !== "all" && { k: "kind", label: kind === "added" ? "Added" : "Updated", clear: () => setKind("all") },
     source !== "all" && { k: "source", label: `Source: ${source}`, clear: () => setSource("all") },
     type !== "all" && { k: "type", label: `Type: ${type}`, clear: () => setType("all") },
@@ -147,7 +123,7 @@ export default function ActivityView() {
   ].filter(Boolean) as { k: string; label: string; clear: () => void }[];
 
   const clearAll = () => {
-    setRange("all"); setKind("all"); setSource("all"); setType("all");
+    setDates({ from: "", to: "" }); setKind("all"); setSource("all"); setType("all");
     setField("all"); setDir("all"); setQ("");
   };
 
@@ -214,23 +190,7 @@ export default function ActivityView() {
         <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           <CalendarDays className="size-3.5" /> When
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          {RANGES.map((r) => (
-            <button key={r.id} onClick={() => setRange(r.id)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                range === r.id ? "bg-primary text-primary-foreground" : "border border-border text-muted-foreground hover:text-foreground"
-              }`}>{r.label}</button>
-          ))}
-        </div>
-        {range === "custom" && (
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-            <input type="date" value={customFrom} max={customTo} onChange={(e) => setCustomFrom(e.target.value)}
-              className="rounded-lg border border-border bg-ink-2 px-3 py-1.5 text-sm outline-none focus:border-primary" />
-            <ArrowRight className="size-3.5 text-muted-foreground" />
-            <input type="date" value={customTo} min={customFrom} max={ymd(new Date())} onChange={(e) => setCustomTo(e.target.value)}
-              className="rounded-lg border border-border bg-ink-2 px-3 py-1.5 text-sm outline-none focus:border-primary" />
-          </div>
-        )}
+        <DateRangePicker value={dates} onChange={setDates} />
 
         <div className="my-3 h-px bg-border" />
 

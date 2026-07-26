@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Search, RefreshCw, ChevronLeft, ChevronRight, ChevronDown, Plus, ArrowRight, Loader2,
 } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
+import { DateRangePicker, type Range } from "@/components/DateRangePicker";
 
 const PAGE_SIZE = 10;
 
@@ -33,8 +34,16 @@ export default function LogsView() {
   const [openRun, setOpenRun] = useState<string | null>(null);
   const [runEvents, setRunEvents] = useState<Record<string, Event[] | "loading">>({});
 
-  const load = () => fetch("/api/logs", { cache: "no-store" }).then((r) => r.json()).then((d) => setLogs(d.logs ?? [])).catch(() => {});
-  useEffect(() => { load(); }, []);
+  const [dates, setDates] = useState<Range>({ from: "", to: "" }); // empty = all time
+
+  const load = useCallback(() => {
+    const p = new URLSearchParams();
+    if (dates.from) p.set("from", dates.from);
+    if (dates.to) p.set("to", dates.to);
+    return fetch(`/api/logs${p.toString() ? `?${p}` : ""}`, { cache: "no-store" })
+      .then((r) => r.json()).then((d) => setLogs(d.logs ?? [])).catch(() => {});
+  }, [dates]);
+  useEffect(() => { load(); }, [load]);
 
   async function toggleRun(runId?: string) {
     if (!runId) return;
@@ -63,6 +72,7 @@ export default function LogsView() {
   return (
     <div>
       <PageHeader title="Logs" subtitle="System activity and run history.">
+        <DateRangePicker value={dates} onChange={setDates} />
         <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3">
           <Search className="size-4 text-muted-foreground" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search logs…" className="w-40 bg-transparent py-2 text-sm outline-none" />
