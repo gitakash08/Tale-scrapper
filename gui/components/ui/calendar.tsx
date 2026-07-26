@@ -76,6 +76,31 @@ export function Calendar({ className, classNames, showOutsideDays = true, ...pro
           orientation === "left"
             ? <ChevronLeft className="size-4" {...rest} />
             : <ChevronRight className="size-4" {...rest} />,
+        // The selected/edge fill is applied inline from the day's own modifiers.
+        // Class-based approaches (arbitrary child variants, then plain CSS) both
+        // matched the element yet never painted it, so this removes the cascade
+        // from the equation entirely.
+        DayButton: ({ day, modifiers, className: cls, style, ...rest }) => {
+          const isEdge =
+            modifiers.range_start || modifiers.range_end ||
+            (modifiers.selected && !modifiers.range_middle);
+          return (
+            <button
+              {...rest}
+              className={cls}
+              style={{
+                ...style,
+                ...(isEdge
+                  ? { backgroundColor: "var(--primary)", color: "var(--primary-foreground)", fontWeight: 600 }
+                  : null),
+                ...(modifiers.today && !isEdge
+                  ? { boxShadow: "inset 0 0 0 1px color-mix(in oklab, var(--primary) 60%, transparent)" }
+                  : null),
+                ...(modifiers.outside ? { opacity: 0.4 } : null),
+              }}
+            />
+          );
+        },
       }}
       {...props}
     />
