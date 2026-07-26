@@ -43,7 +43,7 @@ export function Calendar({ className, classNames, showOutsideDays = true, ...pro
 
         month_grid: "w-full border-collapse",
         weekdays: "flex",
-        weekday: "w-9 text-[11px] font-medium uppercase tracking-wide text-muted-foreground",
+        weekday: "w-9 text-[10px] font-medium uppercase tracking-wide text-muted-foreground",
         weeks: "",
         week: "flex w-full mt-1",
 
@@ -63,6 +63,10 @@ export function Calendar({ className, classNames, showOutsideDays = true, ...pro
         disabled: "[&>button]:text-muted-foreground/30 [&>button]:pointer-events-none",
         hidden: "invisible",
         ...classNames,
+      }}
+      formatters={{
+        // three-letter column headers (MON, TUE…) rather than the two-letter default
+        formatWeekdayName: (d: Date) => d.toLocaleDateString("en-US", { weekday: "short" }),
       }}
       components={{
         Chevron: ({ orientation, ...rest }) =>
