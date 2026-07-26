@@ -78,6 +78,27 @@ export function Calendar({ className, classNames, showOutsideDays = true, ...pro
           orientation === "left"
             ? <ChevronLeft className="size-4" {...rest} />
             : <ChevronRight className="size-4" {...rest} />,
+        /**
+         * The solid end-cap is applied inline. A child selector from the day
+         * cell (`.rdp-edge > button`) reliably matches yet never paints, so the
+         * fill is set on the button itself where nothing can intercept it.
+         * A single-day pick sets BOTH range_start and range_end, so those two
+         * flags alone identify every capped day — no need to consult `selected`,
+         * which is true for the whole band.
+         */
+        DayButton: ({ day, modifiers, ...rest }) => {
+          const isEnd = !!(modifiers.range_start || modifiers.range_end);
+          return (
+            <button
+              {...rest}
+              style={
+                isEnd
+                  ? { backgroundColor: "var(--primary)", color: "var(--primary-foreground)", fontWeight: 600 }
+                  : undefined
+              }
+            />
+          );
+        },
       }}
       {...props}
     />
