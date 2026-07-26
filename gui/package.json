@@ -8,13 +8,16 @@
     "start": "next start -p 4500"
   },
   "dependencies": {
+    "@radix-ui/react-popover": "^1.1.23",
     "@radix-ui/react-slot": "^1.1.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "date-fns": "^4.4.0",
     "lucide-react": "^0.460.0",
     "next": "^15.5.19",
     "pg": "^8.13.0",
     "react": "^19.0.0",
+    "react-day-picker": "^10.0.1",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^3.0.0"
   },
