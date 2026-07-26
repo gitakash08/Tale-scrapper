@@ -53,14 +53,17 @@ export function Calendar({ className, classNames, showOutsideDays = true, ...pro
           "size-9 rounded-lg font-normal transition-colors hover:bg-accent " +
           "focus-visible:outline-2 focus-visible:outline-ring aria-selected:opacity-100",
 
-        range_start: "bg-primary/15 rounded-l-lg [&>button]:bg-primary [&>button]:text-primary-foreground [&>button]:font-semibold [&>button]:hover:bg-primary",
-        range_middle: "bg-primary/15 [&>button]:hover:bg-primary/25",
-        range_end: "bg-primary/15 rounded-r-lg [&>button]:bg-primary [&>button]:text-primary-foreground [&>button]:font-semibold [&>button]:hover:bg-primary",
-        selected: "[&>button]:bg-primary [&>button]:text-primary-foreground [&>button]:font-semibold",
+        /* Range painting lives in globals.css (.rdp-* rules): child-targeting
+           arbitrary variants proved unreliable here, and plain CSS keeps the
+           band logic in one readable place. */
+        range_start: "rdp-band rdp-edge rounded-l-lg",
+        range_middle: "rdp-band rdp-mid",
+        range_end: "rdp-band rdp-edge rounded-r-lg",
+        selected: "rdp-edge",
 
-        today: "[&>button]:ring-1 [&>button]:ring-inset [&>button]:ring-primary/60",
-        outside: "[&>button]:text-muted-foreground/40",
-        disabled: "[&>button]:text-muted-foreground/30 [&>button]:pointer-events-none",
+        today: "rdp-today",
+        outside: "rdp-outside",
+        disabled: "rdp-disabled",
         hidden: "invisible",
         ...classNames,
       }}
